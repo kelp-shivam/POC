@@ -1,0 +1,38 @@
+# ── Secrets — NEVER commit ──
+.env
+*.env
+.env.*
+
+# ── MinerU task files (large, local only) ──
+.mineru_tasks/
+work/
+
+# ── Python cache ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──
+.venv/
+venv/
+env/
+ENV/
+
+# ── PDF test files (keep repo clean) ──
+*.pdf
+
+# ── OS artifacts ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Streamlit local secrets ──
+.streamlit/secrets.toml

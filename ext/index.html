@@ -1,0 +1,2935 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MinerU · Document Extraction Studio</title>
+  <meta name="description" content="Premium MinerU GPU document extraction studio — draggable tri-pane interface with live Markdown rendering, PDF layout validation, and JSON block coordinate explorer.">
+
+  <!-- Inline favicon — eliminates the 404 from Python's HTTP server -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%238b5cf6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><text y='.9em' font-size='65' x='15' fill='white'>⚡</text></svg>">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" crossorigin="anonymous">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ═══════════════════════════════════════════════════════════════
+       DESIGN SYSTEM TOKENS
+    ═══════════════════════════════════════════════════════════════ */
+    :root {
+      /* Dark theme (default) */
+      --bg-root:       #080b14;
+      --bg-bar:        rgba(8, 11, 20, 0.97);
+      --bg-panel:      rgba(10, 14, 26, 0.95);
+      --bg-glass:      rgba(14, 19, 38, 0.80);
+      --bg-inset:      rgba(0, 0, 0, 0.40);
+      --bg-hover:      rgba(255,255,255,0.04);
+      --bg-active:     rgba(99,102,241,0.12);
+      --border:        rgba(80, 100, 200, 0.14);
+      --border-hi:     rgba(120, 140, 255, 0.36);
+      --border-focus:  rgba(99,102,241,0.70);
+      --accent:        #6366f1;
+      --accent-2:      #8b5cf6;
+      --accent-3:      #06b6d4;
+      --accent-glow:   rgba(99,102,241,0.30);
+      --accent-soft:   rgba(99,102,241,0.12);
+      --text-1:        #e4eaf5;
+      --text-2:        #8fa3c0;
+      --text-3:        #48597a;
+      --text-inv:      #ffffff;
+      --success:       #10b981;
+      --danger:        #ef4444;
+      --warn:          #f59e0b;
+      --info:          #3b82f6;
+      --gutter:        5px;
+      --bar-h:         56px;
+      --radius-lg:     14px;
+      --radius-md:     10px;
+      --radius-sm:     7px;
+      --font:          'Inter', system-ui, sans-serif;
+      --mono:          'JetBrains Mono', monospace;
+      --shadow-panel:  0 8px 48px rgba(0,0,0,0.55);
+      --shadow-glow:   0 0 24px rgba(99,102,241,0.22);
+      --transition:    0.18s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    [data-theme="light"] {
+      --bg-root:       #f0f2f8;
+      --bg-bar:        rgba(255,255,255,0.96);
+      --bg-panel:      rgba(255,255,255,0.95);
+      --bg-glass:      rgba(240,242,250,0.90);
+      --bg-inset:      rgba(0,0,0,0.06);
+      --bg-hover:      rgba(99,102,241,0.06);
+      --bg-active:     rgba(99,102,241,0.10);
+      --border:        rgba(99,102,241,0.14);
+      --border-hi:     rgba(99,102,241,0.35);
+      --border-focus:  rgba(99,102,241,0.65);
+      --accent-glow:   rgba(99,102,241,0.20);
+      --accent-soft:   rgba(99,102,241,0.10);
+      --text-1:        #18213a;
+      --text-2:        #4b5a7a;
+      --text-3:        #97a3bb;
+      --bg-inset:      rgba(99,102,241,0.05);
+      --shadow-panel:  0 4px 32px rgba(99,102,241,0.10);
+      --shadow-glow:   0 0 20px rgba(99,102,241,0.12);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%; overflow: hidden;
+      background: var(--bg-root);
+      color: var(--text-1);
+      font-family: var(--font);
+      font-size: 13px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       APP SHELL
+    ═══════════════════════════════════════════════════════════════ */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      background:
+        radial-gradient(ellipse 70% 60% at 10% 80%, rgba(99,102,241,.06) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 45% at 90% 15%, rgba(139,92,246,.05) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 35% at 55% 50%, rgba(6,182,212,.03) 0%, transparent 55%),
+        var(--bg-root);
+    }
+    [data-theme="light"] #app {
+      background:
+        radial-gradient(ellipse 70% 60% at 10% 80%, rgba(99,102,241,.04) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 45% at 90% 15%, rgba(139,92,246,.03) 0%, transparent 60%),
+        var(--bg-root);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       TOP BAR
+    ═══════════════════════════════════════════════════════════════ */
+    #config-bar {
+      height: var(--bar-h);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+      background: var(--bg-bar);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      z-index: 300;
+      flex-shrink: 0;
+      transition: background var(--transition), border-color var(--transition);
+    }
+
+    /* Brand */
+    .brand {
+      display: flex; align-items: center; gap: 9px;
+      flex-shrink: 0; margin-right: 6px;
+    }
+    .brand-logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 50%, var(--accent-3) 100%);
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 0 20px var(--accent-glow), 0 2px 8px rgba(0,0,0,0.3);
+      animation: logoGlow 3s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes logoGlow {
+      0%, 100% { box-shadow: 0 0 20px var(--accent-glow), 0 2px 8px rgba(0,0,0,0.3); }
+      50%       { box-shadow: 0 0 32px var(--accent-glow), 0 2px 12px rgba(0,0,0,0.4); }
+    }
+    .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+    .brand-name {
+      font-weight: 800; font-size: 15px; letter-spacing: -.02em;
+      background: linear-gradient(90deg, #a5b4fc 0%, #c4b5fd 50%, #67e8f9 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .brand-sub {
+      font-size: 9.5px; font-weight: 500; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: .06em;
+      -webkit-text-fill-color: var(--text-3);
+    }
+
+    .sep { width: 1px; height: 28px; background: var(--border); flex-shrink: 0; margin: 0 2px; }
+
+    /* URL input */
+    .url-wrap {
+      flex: 1; min-width: 0;
+      position: relative;
+      display: flex; align-items: center;
+    }
+    .url-wrap-ico {
+      position: absolute; left: 10px;
+      color: var(--text-3); font-size: 12px;
+      pointer-events: none;
+    }
+    #endpoint-input {
+      width: 100%; height: 34px;
+      padding: 0 12px 0 30px;
+      background: var(--bg-inset);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-1);
+      font-family: var(--mono); font-size: 11.5px;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+    }
+    #endpoint-input::placeholder { color: var(--text-3); font-family: var(--font); font-size: 12px; }
+    #endpoint-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      background: var(--bg-glass);
+    }
+
+    /* Controls group */
+    .ctrl-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+    .sel-wrap { position: relative; }
+    .engine-sel {
+      height: 32px; padding: 0 28px 0 10px;
+      background: var(--bg-inset);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      color: var(--text-1); font-family: var(--font); font-size: 11.5px;
+      outline: none; cursor: pointer; appearance: none;
+      transition: border-color var(--transition);
+    }
+    .engine-sel:hover { border-color: var(--border-hi); }
+    .sel-arrow {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      color: var(--text-3); font-size: 9px; pointer-events: none;
+    }
+
+    /* Toggle chips */
+    .chip-row { display: flex; gap: 5px; }
+    .chip {
+      display: flex; align-items: center; gap: 5px;
+      height: 28px; padding: 0 10px;
+      background: var(--bg-inset);
+      border: 1px solid var(--border); border-radius: 20px;
+      font-size: 11.5px; color: var(--text-2);
+      cursor: pointer; user-select: none;
+      transition: all var(--transition);
+    }
+    .chip:hover { border-color: var(--border-hi); color: var(--text-1); }
+    .chip input[type="checkbox"] { display: none; }
+    .chip-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--text-3); transition: background var(--transition);
+      flex-shrink: 0;
+    }
+    .chip.on { background: var(--accent-soft); border-color: var(--accent); color: #a5b4fc; }
+    .chip.on .chip-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
+
+    /* Progress */
+    #prog-wrap { width: 100px; flex-shrink: 0; display: none; flex-direction: column; gap: 2px; }
+    #prog-wrap.on { display: flex; }
+    .prog-track {
+      height: 4px; background: rgba(255,255,255,0.08);
+      border-radius: 2px; overflow: hidden;
+    }
+    .prog-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3));
+      background-size: 200% 100%;
+      border-radius: 2px;
+      transition: width .3s ease;
+      animation: shimmer 1.8s linear infinite;
+    }
+    @keyframes shimmer { 0%{background-position:0%} 100%{background-position:200%} }
+    .prog-lbl { font-size: 9.5px; color: var(--text-3); text-align: right; }
+
+    /* Status badge */
+    #status {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--text-2);
+      padding: 4px 10px; border-radius: 20px;
+      background: var(--bg-inset); border: 1px solid var(--border);
+      flex-shrink: 0; min-width: 80px;
+      transition: all var(--transition);
+    }
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--text-3); flex-shrink: 0;
+      transition: background .3s, box-shadow .3s;
+    }
+    #status.ready .dot  { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    #status.busy  .dot  { background: var(--accent); animation: blink 1s infinite; box-shadow: 0 0 6px var(--accent); }
+    #status.err   .dot  { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+    /* Theme toggle */
+    #theme-btn {
+      width: 32px; height: 32px;
+      background: var(--bg-inset); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0;
+      transition: all var(--transition);
+    }
+    #theme-btn:hover { border-color: var(--border-hi); background: var(--bg-hover); }
+
+    /* Upload button */
+    #file-input { display: none; }
+    .btn-up {
+      height: 34px; padding: 0 16px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      border: none; border-radius: var(--radius-sm);
+      color: #fff; font-family: var(--font); font-size: 12px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; gap: 6px;
+      box-shadow: 0 2px 16px rgba(99,102,241,.38);
+      transition: all var(--transition); flex-shrink: 0;
+      position: relative; overflow: hidden;
+    }
+    .btn-up::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 100%);
+      opacity: 0; transition: opacity var(--transition);
+    }
+    .btn-up:hover::before { opacity: 1; }
+    .btn-up:hover  { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99,102,241,.5); }
+    .btn-up:active { transform: translateY(0); box-shadow: 0 2px 10px rgba(99,102,241,.3); }
+    .btn-up:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       MAIN WORKSPACE — RESIZABLE LAYOUT ENGINE
+    ═══════════════════════════════════════════════════════════════ */
+    #workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Left pane */
+    #left-pane {
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      min-width: 200px;
+      width: 38%;
+      background: var(--bg-panel);
+      transition: background var(--transition);
+    }
+
+    /* Vertical gutter (between left & right) */
+    .vgutter {
+      width: var(--gutter);
+      background: var(--border);
+      cursor: col-resize;
+      flex-shrink: 0;
+      position: relative;
+      transition: background var(--transition);
+      z-index: 10;
+    }
+    .vgutter::before {
+      content: ''; position: absolute; inset: 0 -4px;
+      cursor: col-resize;
+    }
+    .vgutter:hover, .vgutter.dragging {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* Right stack */
+    #right-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 200px;
+      background: var(--bg-root);
+    }
+
+    /* Top-right: PDF viewer */
+    #pdf-pane {
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      min-height: 120px;
+      height: 55%;
+      background: var(--bg-panel);
+    }
+
+    /* Horizontal gutter (between PDF & JSON) */
+    .hgutter {
+      height: var(--gutter);
+      background: var(--border);
+      cursor: row-resize;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 10;
+      transition: background var(--transition);
+    }
+    .hgutter::before {
+      content: ''; position: absolute; inset: -4px 0;
+      cursor: row-resize;
+    }
+    .hgutter:hover, .hgutter.dragging {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* Bottom-right: JSON explorer */
+    #json-pane {
+      flex: 1;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      min-height: 100px;
+      background: var(--bg-panel);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PANEL COMPONENTS
+    ═══════════════════════════════════════════════════════════════ */
+    .ph {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.015);
+      transition: border-color var(--transition), background var(--transition);
+    }
+    [data-theme="light"] .ph { background: rgba(0,0,0,0.015); }
+
+    .ph-icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .ico-md   { background: rgba(99,102,241,.15); }
+    .ico-pdf  { background: rgba(239,68,68,.15); }
+    .ico-json { background: rgba(16,185,129,.15); }
+
+    .ph-title {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--text-2);
+    }
+    .ph-badge {
+      margin-left: auto;
+      font-size: 9.5px; font-weight: 600;
+      padding: 2px 8px; border-radius: 20px;
+      background: var(--accent-soft); border: 1px solid rgba(99,102,241,.22);
+      color: #a5b4fc; flex-shrink: 0;
+    }
+    [data-theme="light"] .ph-badge { color: var(--accent); }
+
+    /* Panel actions (right side of header) */
+    .ph-actions { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+    .icon-btn {
+      width: 26px; height: 26px;
+      background: transparent; border: 1px solid transparent;
+      border-radius: 5px; cursor: pointer;
+      color: var(--text-3); font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all var(--transition);
+    }
+    .icon-btn:hover { border-color: var(--border); background: var(--bg-hover); color: var(--text-1); }
+    .icon-btn:disabled { opacity: .3; cursor: not-allowed; }
+
+    /* Scrollable body */
+    .pb {
+      flex: 1; overflow: auto; padding: 16px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(99,102,241,.2) transparent;
+    }
+    .pb::-webkit-scrollbar { width: 5px; }
+    .pb::-webkit-scrollbar-thumb { background: rgba(99,102,241,.2); border-radius: 3px; }
+    .pb::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,.4); }
+
+    /* Empty states */
+    .empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; gap: 10px; color: var(--text-3); text-align: center;
+      padding: 24px;
+    }
+    .empty-ico {
+      font-size: 40px; opacity: .4;
+      filter: grayscale(20%);
+    }
+    .empty-ttl { font-size: 14px; font-weight: 600; color: var(--text-2); }
+    .empty-sub { font-size: 12px; max-width: 220px; line-height: 1.65; color: var(--text-3); }
+    .empty-hint {
+      font-size: 11px; padding: 5px 12px;
+      border-radius: 20px; border: 1px dashed var(--border);
+      color: var(--text-3);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       MARKDOWN RENDERER
+    ═══════════════════════════════════════════════════════════════ */
+    #md-out {
+      font-size: 13.5px; line-height: 1.75; color: var(--text-1);
+    }
+    #md-out h1 {
+      font-size: 22px; font-weight: 800; margin: 0 0 16px;
+      color: #c4b5fd; border-bottom: 1px solid var(--border); padding-bottom: 12px;
+      letter-spacing: -.02em;
+    }
+    [data-theme="light"] #md-out h1 { color: var(--accent); }
+    #md-out h2 { font-size: 18px; font-weight: 700; margin: 24px 0 11px; color: #a5b4fc; }
+    #md-out h3 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; color: #93c5fd; }
+    #md-out h4 { font-size: 13.5px; font-weight: 600; margin: 13px 0 6px; color: #7dd3fc; }
+    [data-theme="light"] #md-out h2 { color: var(--accent-2); }
+    [data-theme="light"] #md-out h3 { color: var(--accent-3); }
+    #md-out p  { margin: 0 0 12px; }
+    #md-out a  { color: #818cf8; text-decoration: none; }
+    #md-out a:hover { text-decoration: underline; }
+    #md-out strong { color: var(--text-1); font-weight: 700; }
+    #md-out em { color: #c4b5fd; }
+    #md-out ul, #md-out ol { padding-left: 22px; margin: 8px 0; }
+    #md-out li { margin-bottom: 4px; }
+    #md-out hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+    #md-out blockquote {
+      border-left: 3px solid var(--accent); padding: 8px 16px;
+      color: var(--text-2); margin: 14px 0;
+      background: var(--accent-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    }
+    #md-out table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 12.5px; }
+    #md-out th {
+      background: var(--accent-soft); color: #a5b4fc; font-weight: 600;
+      padding: 8px 12px; text-align: left; border: 1px solid var(--border);
+    }
+    [data-theme="light"] #md-out th { color: var(--accent); }
+    #md-out td { padding: 6px 12px; border: 1px solid var(--border); }
+    #md-out tr:nth-child(even) td { background: rgba(255,255,255,0.018); }
+    [data-theme="light"] #md-out tr:nth-child(even) td { background: rgba(99,102,241,0.04); }
+    #md-out code {
+      font-family: var(--mono); font-size: 11.5px;
+      background: rgba(99,102,241,.13); padding: 2px 6px;
+      border-radius: 4px; color: #c4b5fd;
+    }
+    [data-theme="light"] #md-out code { color: var(--accent); background: var(--accent-soft); }
+    #md-out pre {
+      background: var(--bg-inset); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 14px; margin: 14px 0; overflow-x: auto;
+    }
+    #md-out pre code { background: none; padding: 0; color: var(--text-1); }
+    #md-out img {
+      max-width: 100%; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); margin: 10px 0; display: block;
+      transition: transform .2s, box-shadow .2s;
+    }
+    #md-out img:hover { transform: scale(1.01); box-shadow: var(--shadow-panel); }
+    #md-out .katex-display { margin: 18px 0; overflow-x: auto; }
+
+    /* Hoverable block */
+    .mdb {
+      border-radius: 6px; padding: 3px 5px; margin: -3px -5px;
+      transition: background var(--transition); cursor: default;
+    }
+    .mdb:hover { background: rgba(99,102,241,.08); }
+    .mdb.lit   { background: rgba(99,102,241,.15); outline: 1.5px solid rgba(99,102,241,.35); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PDF VIEWER
+    ═══════════════════════════════════════════════════════════════ */
+    #pdf-vp {
+      flex: 1; overflow: auto; position: relative;
+      background: #0c0f1c;
+      display: flex; align-items: flex-start; justify-content: center;
+      scrollbar-width: thin; scrollbar-color: rgba(99,102,241,.2) transparent;
+    }
+    [data-theme="light"] #pdf-vp { background: #e8eaf5; }
+    #pdf-vp::-webkit-scrollbar { width: 5px; height: 5px; }
+    #pdf-vp::-webkit-scrollbar-thumb { background: rgba(99,102,241,.2); border-radius: 3px; }
+
+    /* Zoom controls */
+    .zoom-row { display: flex; align-items: center; gap: 4px; }
+    .zoom-lbl { font-size: 10.5px; color: var(--text-3); min-width: 36px; text-align: center; }
+
+    #canvas-wrap {
+      position: relative; margin: 14px; flex-shrink: 0;
+      box-shadow: 0 12px 48px rgba(0,0,0,.65);
+      border-radius: 4px; overflow: hidden;
+    }
+    #pdf-canvas { display: block; }
+    #bbox-ol { position: absolute; inset: 0; pointer-events: none; transition: none; }
+    #bbox-ol.calibrating { cursor: move; pointer-events: auto; outline: 2px dashed rgba(251,191,36,.7); outline-offset: -2px; background: rgba(251,191,36,.04); }
+    .calib-bar { display: none; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.35); border-radius: 6px; font-size: 11px; color: #f59e0b; margin-top: 2px; }
+    .calib-bar.visible { display: flex; }
+    .calib-bar .calib-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; min-width: 52px; text-align: center; }
+    .calib-bar button { font-size: 10px; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(251,191,36,.4); background: transparent; color: #f59e0b; cursor: pointer; }
+    .calib-bar button:hover { background: rgba(251,191,36,.15); }
+    .calib-sc { width: 22px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+    .bx {
+      position: absolute;
+      border: 2px solid rgba(99,102,241,.8);
+      background: rgba(99,102,241,.12);
+      border-radius: 3px;
+      pointer-events: auto; /* Enable interactivity */
+      cursor: pointer;
+      transition: background-color .1s, border-color .1s, box-shadow .1s;
+    }
+    .bx:hover {
+      background-color: rgba(255, 0, 0, 0.3) !important;
+      border-color: red !important;
+      z-index: 50;
+    }
+    .bx.hot {
+      border-color: rgba(251,146,60,.95);
+      background: rgba(251,146,60,.15);
+      box-shadow: 0 0 12px rgba(251,146,60,.35);
+      display: block;
+    }
+    .bx.sel {
+      border-color: rgba(16,185,129,.95);
+      background: rgba(16,185,129,.12);
+      box-shadow: 0 0 12px rgba(16,185,129,.3);
+      display: block;
+    }
+    /* Show All mode */
+    #bbox-ol.show-all .bx { display: block; }
+    #bbox-ol.show-all .bx.t-text { border-color: rgba(74, 222, 128, 0.9); background: rgba(74, 222, 128, 0.1); }
+    #bbox-ol.show-all .bx.t-image, #bbox-ol.show-all .bx.t-figure { border-color: rgba(248, 113, 113, 0.9); background: rgba(248, 113, 113, 0.1); }
+    #bbox-ol.show-all .bx.t-table { border-color: rgba(96, 165, 250, 0.9); background: rgba(96, 165, 250, 0.1); }
+    #bbox-ol.show-all .bx.t-equation, #bbox-ol.show-all .bx.t-formula { border-color: rgba(192, 132, 252, 0.9); background: rgba(192, 132, 252, 0.1); }
+
+    /* Page indicator */
+    #pg-ind { font-size: 11.5px; color: var(--text-2); min-width: 56px; text-align: center; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       JSON EXPLORER
+    ═══════════════════════════════════════════════════════════════ */
+    .jtool {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px;
+      background: rgba(0,0,0,.18); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; flex-wrap: wrap;
+    }
+    [data-theme="light"] .jtool { background: rgba(0,0,0,.03); }
+
+    .ftabs { display: flex; gap: 3px; flex-wrap: wrap; }
+    .ftab {
+      height: 24px; padding: 0 9px;
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 20px; font-size: 10.5px; font-weight: 500;
+      color: var(--text-2); cursor: pointer;
+      transition: all var(--transition);
+    }
+    .ftab:hover { border-color: var(--border-hi); color: var(--text-1); background: var(--bg-hover); }
+    .ftab.on {
+      background: var(--accent-soft); border-color: var(--accent); color: #a5b4fc;
+    }
+    [data-theme="light"] .ftab.on { color: var(--accent); }
+
+    .jsrch {
+      flex: 1; min-width: 80px; height: 26px; padding: 0 9px;
+      background: var(--bg-inset); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-1);
+      font-family: var(--mono); font-size: 11px;
+      outline: none; transition: border-color var(--transition);
+    }
+    .jsrch::placeholder { color: var(--text-3); font-family: var(--font); }
+    .jsrch:focus { border-color: var(--border-focus); }
+
+    .jcnt { font-size: 10px; color: var(--text-3); flex-shrink: 0; }
+
+    #jscroll {
+      flex: 1; overflow-y: auto;
+      scrollbar-width: thin; scrollbar-color: rgba(16,185,129,.2) transparent;
+    }
+    #jscroll::-webkit-scrollbar { width: 4px; }
+    #jscroll::-webkit-scrollbar-thumb { background: rgba(16,185,129,.2); border-radius: 3px; }
+
+    .jlist { padding: 6px; }
+    .je {
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      margin-bottom: 4px; overflow: hidden; cursor: pointer;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .je:hover { border-color: var(--border-hi); }
+    .je.sel {
+      border-color: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    .jeh {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 9px; background: rgba(255,255,255,.02);
+    }
+    [data-theme="light"] .jeh { background: rgba(0,0,0,.025); }
+
+    .bt {
+      font-size: 9px; font-weight: 700; padding: 2px 7px;
+      border-radius: 10px; text-transform: uppercase;
+      letter-spacing: .05em; flex-shrink: 0;
+    }
+    .t-text  { background:rgba(99,102,241,.2);  color:#a5b4fc; border:1px solid rgba(99,102,241,.25); }
+    .t-title { background:rgba(139,92,246,.2);  color:#c4b5fd; border:1px solid rgba(139,92,246,.25); }
+    .t-table { background:rgba(16,185,129,.2);  color:#6ee7b7; border:1px solid rgba(16,185,129,.25); }
+    .t-eq    { background:rgba(245,158,11,.2);  color:#fcd34d; border:1px solid rgba(245,158,11,.25); }
+    .t-img   { background:rgba(239,68,68,.2);   color:#fca5a5; border:1px solid rgba(239,68,68,.25); }
+    .t-misc  { background:rgba(100,100,120,.18);color:#94a3b8; border:1px solid rgba(100,100,120,.2); }
+
+    .jprev {
+      flex: 1; font-size: 11px; color: var(--text-2);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .jpg { font-size: 10px; color: var(--text-3); flex-shrink: 0; white-space: nowrap; }
+    .jtog {
+      width: 18px; height: 18px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-3); font-size: 10px;
+      border-radius: 4px; background: var(--bg-inset);
+      transition: transform var(--transition), background var(--transition);
+    }
+    .je.sel .jtog { transform: rotate(90deg); background: var(--accent-soft); color: var(--accent); }
+
+    .jeb {
+      display: none; padding: 12px 14px;
+      border-top: 1px solid var(--border-soft);
+      background: rgba(0,0,0,0.02);
+    }
+    .jimg-preview {
+      max-width: 100%; max-height: 300px;
+      margin-bottom: 12px; border-radius: 4px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: block;
+    }
+    [data-theme="dark"] .jeb { background: rgba(0,0,0,0.15); }
+    .jeb.open { display: block; }
+    .jeb pre {
+      margin: 0; font-family: var(--mono); font-size: 10.5px;
+      line-height: 1.6; overflow-x: auto; background: transparent;
+      white-space: pre-wrap; word-break: break-all;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DRAG & DROP OVERLAY
+    ═══════════════════════════════════════════════════════════════ */
+    #drop-ov {
+      display: none; position: fixed; inset: 0;
+      background: rgba(8,11,20,.90);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 600;
+      align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+    }
+    #drop-ov.on { display: flex; }
+    .drop-ring {
+      width: 300px; height: 220px;
+      border: 2px dashed rgba(99,102,241,.6); border-radius: 20px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      animation: pulseRing 1.8s ease-in-out infinite;
+      position: relative;
+    }
+    @keyframes pulseRing {
+      0%,100% { border-color: rgba(99,102,241,.5); box-shadow: 0 0 20px rgba(99,102,241,.15); }
+      50%      { border-color: rgba(99,102,241,.9); box-shadow: 0 0 50px rgba(99,102,241,.30); }
+    }
+    .drop-ico  { font-size: 52px; filter: drop-shadow(0 0 12px rgba(99,102,241,.5)); }
+    .drop-ttl  { font-size: 19px; font-weight: 700; color: var(--text-1); }
+    .drop-sub  { font-size: 13px; color: var(--text-2); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       TOAST
+    ═══════════════════════════════════════════════════════════════ */
+    #toast {
+      position: fixed; bottom: 20px; right: 20px;
+      padding: 11px 16px; border-radius: var(--radius-md);
+      font-size: 12.5px; font-weight: 500;
+      display: none; z-index: 999;
+      max-width: 360px; line-height: 1.5;
+      animation: toastIn .25s cubic-bezier(.175,.885,.32,1.275);
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      backdrop-filter: blur(12px);
+    }
+    @keyframes toastIn {
+      from { transform: translateY(20px) scale(.96); opacity: 0; }
+      to   { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    #toast.info    { background: rgba(99,102,241,.95); color:#fff; border:1px solid rgba(255,255,255,.15); }
+    #toast.success { background: rgba(16,185,129,.95); color:#fff; border:1px solid rgba(255,255,255,.15); }
+    #toast.error   { background: rgba(239,68,68,.95);  color:#fff; border:1px solid rgba(255,255,255,.15); }
+    #toast.warn    { background: rgba(245,158,11,.92); color:#fff; border:1px solid rgba(255,255,255,.15); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       STATS BAR (file metadata strip inside md-pane header)
+    ═══════════════════════════════════════════════════════════════ */
+    .stat-row {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      padding: 5px 14px;
+      background: rgba(99,102,241,.05);
+      border-bottom: 1px solid var(--border);
+      font-size: 10.5px; color: var(--text-3);
+      flex-shrink: 0;
+    }
+    .stat-row.hidden { display: none; }
+    .stat-item { display: flex; align-items: center; gap: 4px; }
+    .stat-val { color: var(--text-2); font-weight: 600; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       MINI SCROLLBAR EVERYWHERE
+    ═══════════════════════════════════════════════════════════════ */
+    * { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,.18) transparent; }
+    *::-webkit-scrollbar { width: 5px; height: 5px; }
+    *::-webkit-scrollbar-thumb { background: rgba(99,102,241,.2); border-radius: 3px; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       GUTTER DRAG HANDLE INDICATOR
+    ═══════════════════════════════════════════════════════════════ */
+    .vgutter::after, .hgutter::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,.3);
+      border-radius: 2px;
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+    .vgutter::after {
+      width: 2px; height: 32px;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .hgutter::after {
+      height: 2px; width: 32px;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .vgutter:hover::after, .hgutter:hover::after,
+    .vgutter.dragging::after, .hgutter.dragging::after { opacity: 1; }
+
+    /* Panel max/min state */
+    #left-pane.collapsed  { width: 0 !important; min-width: 0; overflow: hidden; }
+    #pdf-pane.collapsed   { height: 0 !important; min-height: 0; overflow: hidden; }
+
+    /* Responsive: hide gutter tooltip */
+    .gutter-tip {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      font-size: 9px; letter-spacing: .1em;
+      color: rgba(255,255,255,.4); pointer-events: none;
+      white-space: nowrap; opacity: 0;
+      transition: opacity var(--transition);
+    }
+    .vgutter:hover .gutter-tip, .hgutter:hover .gutter-tip { opacity: 1; }
+
+    /* Selection highlight for light mode hljs */
+    [data-theme="light"] .hljs {
+      background: var(--bg-inset) !important;
+      color: #334155 !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ANNOTATION TYPE COLORS
+    ═══════════════════════════════════════════════════════════════ */
+    .bx.ct-title       { border-color: rgba(139,92,246,.85); background: rgba(139,92,246,.12); }
+    .bx.ct-paragraph   { border-color: rgba(34,197,94,.85);  background: rgba(34,197,94,.12);  }
+    .bx.ct-list         { border-color: rgba(59,130,246,.85); background: rgba(59,130,246,.12); }
+    .bx.ct-table        { border-color: rgba(249,115,22,.85); background: rgba(249,115,22,.12); }
+    .bx.ct-chart        { border-color: rgba(239,68,68,.85);  background: rgba(239,68,68,.12);  }
+    .bx.ct-image        { border-color: rgba(236,72,153,.85); background: rgba(236,72,153,.12); }
+    .bx.ct-page_header  { border-color: rgba(107,114,128,.7); background: rgba(107,114,128,.08); }
+    .bx.ct-page_footer  { border-color: rgba(107,114,128,.7); background: rgba(107,114,128,.08); }
+    .bx.ct-page_number  { border-color: rgba(107,114,128,.7); background: rgba(107,114,128,.08); }
+    .bx.ct-page_aside_text { border-color: rgba(234,179,8,.85); background: rgba(234,179,8,.12); }
+    .bx.ct-unknown      { border-color: rgba(148,163,184,.7); background: rgba(148,163,184,.08); }
+
+    /* Show All mode — type colors */
+    #bbox-ol.show-all .bx.ct-title       { border-color: rgba(139,92,246,.9); background: rgba(139,92,246,.15); }
+    #bbox-ol.show-all .bx.ct-paragraph   { border-color: rgba(34,197,94,.9);  background: rgba(34,197,94,.15);  }
+    #bbox-ol.show-all .bx.ct-list         { border-color: rgba(59,130,246,.9); background: rgba(59,130,246,.15); }
+    #bbox-ol.show-all .bx.ct-table        { border-color: rgba(249,115,22,.9); background: rgba(249,115,22,.15); }
+    #bbox-ol.show-all .bx.ct-chart        { border-color: rgba(239,68,68,.9);  background: rgba(239,68,68,.15);  }
+    #bbox-ol.show-all .bx.ct-image        { border-color: rgba(236,72,153,.9); background: rgba(236,72,153,.15); }
+    #bbox-ol.show-all .bx.ct-page_header  { border-color: rgba(107,114,128,.8); background: rgba(107,114,128,.1); }
+    #bbox-ol.show-all .bx.ct-page_footer  { border-color: rgba(107,114,128,.8); background: rgba(107,114,128,.1); }
+    #bbox-ol.show-all .bx.ct-page_number  { border-color: rgba(107,114,128,.8); background: rgba(107,114,128,.1); }
+    #bbox-ol.show-all .bx.ct-page_aside_text { border-color: rgba(234,179,8,.9); background: rgba(234,179,8,.15); }
+
+    /* Reading Order Badge */
+    .bbox-order {
+      position: absolute; top: -1px; left: -1px;
+      min-width: 18px; height: 18px;
+      padding: 0 4px;
+      font-size: 9px; font-weight: 800;
+      line-height: 18px; text-align: center;
+      color: #fff;
+      border-radius: 0 0 6px 0;
+      pointer-events: none;
+      z-index: 5;
+      font-family: var(--mono);
+      letter-spacing: -.02em;
+      text-shadow: 0 1px 2px rgba(0,0,0,.5);
+    }
+    /* Badge colors per type */
+    .ct-title       .bbox-order { background: rgba(139,92,246,.92); }
+    .ct-paragraph   .bbox-order { background: rgba(34,197,94,.92); }
+    .ct-list         .bbox-order { background: rgba(59,130,246,.92); }
+    .ct-table        .bbox-order { background: rgba(249,115,22,.92); }
+    .ct-chart        .bbox-order { background: rgba(239,68,68,.92); }
+    .ct-image        .bbox-order { background: rgba(236,72,153,.92); }
+    .ct-page_header  .bbox-order { background: rgba(107,114,128,.85); }
+    .ct-page_footer  .bbox-order { background: rgba(107,114,128,.85); }
+    .ct-page_number  .bbox-order { background: rgba(107,114,128,.85); }
+    .ct-page_aside_text .bbox-order { background: rgba(234,179,8,.92); }
+    .ct-unknown      .bbox-order { background: rgba(148,163,184,.85); }
+
+    /* Block type label inside bbox */
+    .bbox-label {
+      position: absolute; bottom: -1px; right: -1px;
+      font-size: 8px; font-weight: 700;
+      padding: 1px 5px;
+      color: rgba(255,255,255,.9);
+      border-radius: 4px 0 0 0;
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-family: var(--font);
+      text-shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+    .ct-title       .bbox-label { background: rgba(139,92,246,.85); }
+    .ct-paragraph   .bbox-label { background: rgba(34,197,94,.85); }
+    .ct-list         .bbox-label { background: rgba(59,130,246,.85); }
+    .ct-table        .bbox-label { background: rgba(249,115,22,.85); }
+    .ct-chart        .bbox-label { background: rgba(239,68,68,.85); }
+    .ct-image        .bbox-label { background: rgba(236,72,153,.85); }
+    .ct-page_header  .bbox-label { background: rgba(107,114,128,.75); }
+    .ct-page_footer  .bbox-label { background: rgba(107,114,128,.75); }
+    .ct-page_number  .bbox-label { background: rgba(107,114,128,.75); }
+    .ct-page_aside_text .bbox-label { background: rgba(234,179,8,.85); }
+    .ct-unknown      .bbox-label { background: rgba(148,163,184,.75); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ANNOTATION LEGEND STRIP
+    ═══════════════════════════════════════════════════════════════ */
+    .legend-strip {
+      display: none; flex-wrap: wrap; gap: 6px;
+      padding: 5px 12px;
+      background: rgba(0,0,0,.15);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    [data-theme="light"] .legend-strip { background: rgba(0,0,0,.04); }
+    .legend-strip.visible { display: flex; }
+    .legend-item {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 9.5px; color: var(--text-2);
+      font-weight: 500;
+    }
+    .legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,.15);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       RECONSTRUCTED PDF CANVAS
+    ═══════════════════════════════════════════════════════════════ */
+    #recon-wrap {
+      position: relative; margin: 14px; flex-shrink: 0;
+      box-shadow: 0 12px 48px rgba(0,0,0,.65);
+      border-radius: 4px; overflow: hidden;
+      display: none;
+    }
+    #recon-canvas { display: block; }
+    #recon-bbox-ol { position: absolute; inset: 0; pointer-events: none; }
+    #recon-bbox-ol .bx { pointer-events: auto; cursor: pointer; }
+
+    /* Image placeholder in markdown */
+    .img-placeholder {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px; margin: 8px 0;
+      background: var(--bg-inset);
+      border: 1px dashed var(--border-hi);
+      border-radius: var(--radius-sm);
+      color: var(--text-3); font-size: 12px;
+      font-family: var(--mono);
+    }
+    .img-placeholder-ico { font-size: 20px; opacity: .5; }
+
+    .visual-summary-panel {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-hi);
+    }
+    .visual-summary-panel h1 {
+      font-size: 18px;
+      margin: 0 0 12px;
+      color: var(--accent-3);
+    }
+    .visual-summary-panel h2 {
+      font-size: 13px;
+      margin: 14px 0 6px;
+      color: var(--text-1);
+    }
+
+    /* JSON explorer — new type badges */
+    .t-list    { background:rgba(59,130,246,.2);   color:#93c5fd; border:1px solid rgba(59,130,246,.25); }
+    .t-chart   { background:rgba(239,68,68,.2);    color:#fca5a5; border:1px solid rgba(239,68,68,.25); }
+    .t-header  { background:rgba(107,114,128,.18); color:#9ca3af; border:1px solid rgba(107,114,128,.2); }
+    .t-footer  { background:rgba(107,114,128,.18); color:#9ca3af; border:1px solid rgba(107,114,128,.2); }
+    .t-pgnum   { background:rgba(107,114,128,.18); color:#9ca3af; border:1px solid rgba(107,114,128,.2); }
+    .t-aside   { background:rgba(234,179,8,.2);    color:#fde047; border:1px solid rgba(234,179,8,.25); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TOP CONFIG BAR
+  ═══════════════════════════════════════════════════════════ -->
+  <header id="config-bar">
+
+    <div class="brand">
+      <div class="brand-logo">⚡</div>
+      <div class="brand-text">
+        <span class="brand-name">MinerU Studio</span>
+        <span class="brand-sub">Document Extraction</span>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Endpoint URL -->
+    <div class="url-wrap">
+      <span class="url-wrap-ico">🔗</span>
+      <input type="text" id="endpoint-input"
+             placeholder="http://127.0.0.1:8000  — local MinerU bridge or Ngrok URL"
+             spellcheck="false" autocomplete="off" autocorrect="off">
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Engine + toggles -->
+    <div class="ctrl-group">
+      <div class="sel-wrap">
+        <select class="engine-sel" id="backend-sel" title="Extraction backend">
+          <option value="vlm">🤖 MinerU VLM</option>
+          <option value="pipeline">⚙ MinerU Pipeline</option>
+        </select>
+        <span class="sel-arrow">▾</span>
+      </div>
+      <div class="chip-row">
+        <label class="chip" id="chip-formula" title="Formula / LaTeX extraction">
+          <input type="checkbox" id="chk-formula" checked>
+          <span class="chip-dot"></span>
+          <span>∑ Formula</span>
+        </label>
+        <label class="chip" id="chip-table" title="Structural table merging">
+          <input type="checkbox" id="chk-table" checked>
+          <span class="chip-dot"></span>
+          <span>⊞ Tables</span>
+        </label>
+        <label class="chip" id="chip-caption" title="Enable Vision-Language Model image captioning">
+          <input type="checkbox" id="chk-caption" checked>
+          <span class="chip-dot"></span>
+          <span>✨ Captions</span>
+        </label>
+        <label class="chip" id="chip-icons" title="Filter out small icons (< 50x50)">
+          <input type="checkbox" id="chk-icons" checked>
+          <span class="chip-dot"></span>
+          <span>🚫 Drop Icons</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Progress -->
+    <div id="prog-wrap">
+      <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+      <div class="prog-lbl" id="prog-lbl">0%</div>
+    </div>
+
+    <!-- Status -->
+    <div id="status"><div class="dot"></div><span id="status-txt">Ready</span></div>
+
+    <!-- Test connection -->
+    <button id="test-btn" title="Test connection to Ngrok endpoint (GET /health)" style="
+      height:32px; padding:0 12px; font-size:11.5px; font-weight:600;
+      background:transparent; border:1px solid var(--border); border-radius:var(--radius-sm);
+      color:var(--text-2); cursor:pointer; flex-shrink:0; font-family:var(--font);
+      transition:all var(--transition); display:flex; align-items:center; gap:5px;
+    ">🔌 Test</button>
+
+    <!-- Theme toggle -->
+    <button id="theme-btn" title="Toggle dark / light mode">🌙</button>
+
+    <!-- Resume -->
+    <button class="btn-up" id="resume-btn" onclick="resumeTask()" style="background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.8); color: rgba(16,185,129,1);" title="Resume disconnected task">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="1 4 1 10 7 10"></polyline>
+        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+      </svg>
+      Resume Task
+    </button>
+    <!-- Download ZIP -->
+    <button class="btn-up" id="dl-zip-btn" style="background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.6); color: rgba(99,102,241,1); display:none;" title="Download the raw API result ZIP">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      ⬇ ZIP
+    </button>
+    <!-- Upload -->
+   <!-- 1. Keep your input, but add 'display: none' to hide it cleanly -->
+<input type="file" id="file-input" style="display: none;">
+
+<!-- 2. Your button works perfectly to trigger the click -->
+<button class="btn-up" id="upload-btn" onclick="document.getElementById('file-input').click()">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+  Upload PDF
+</button>
+
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       RESIZABLE WORKSPACE
+  ═══════════════════════════════════════════════════════════ -->
+  <div id="workspace">
+
+    <!-- ── LEFT: Markdown Renderer ─────────────────────────── -->
+    <div id="left-pane">
+      <div class="ph">
+        <div class="ph-icon ico-md">📄</div>
+        <span class="ph-title">Live Markdown</span>
+        <div class="ph-actions">
+          <span class="ph-badge" id="md-pill">LLM-Ready</span>
+          <button class="icon-btn" id="md-copy-btn" title="Copy markdown">⎘</button>
+        </div>
+      </div>
+      <!-- Stats strip -->
+      <div class="stat-row hidden" id="stat-row">
+        <div class="stat-item">Words: <span class="stat-val" id="stat-words">—</span></div>
+        <div class="stat-item">Blocks: <span class="stat-val" id="stat-blocks">—</span></div>
+        <div class="stat-item">Images: <span class="stat-val" id="stat-imgs">—</span></div>
+        <div class="stat-item">Pages: <span class="stat-val" id="stat-pages">—</span></div>
+        <div class="stat-item">⏱ GPU Time: <span class="stat-val" id="stat-gpu-time" style="color:#f59e0b;">—</span></div>
+        <div class="stat-item">💰 GPU Cost (T4 @ $0.30/hr): <span class="stat-val" id="stat-cost" style="color:var(--accent);">—</span></div>
+      </div>
+      <div class="pb" id="md-body">
+        <div id="md-out">
+          <div class="empty" id="md-empty">
+            <div class="empty-ico">📑</div>
+            <div class="empty-ttl">No document loaded</div>
+            <div class="empty-sub">Upload a PDF or drag one onto the window to begin extraction</div>
+            <div class="empty-hint">🔗 Paste your Ngrok URL above first</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VERTICAL GUTTER ──────────────────────────────────── -->
+    <div class="vgutter" id="vgutter">
+      <span class="gutter-tip">DRAG</span>
+    </div>
+
+    <!-- ── RIGHT STACK ──────────────────────────────────────── -->
+    <div id="right-pane">
+
+      <!-- RIGHT TOP: PDF Viewer -->
+      <div id="pdf-pane">
+        <div class="ph">
+          <div class="ph-icon ico-pdf">🗺</div>
+          <span class="ph-title">Layout Validator</span>
+          <div class="ph-actions">
+            <!-- Page nav -->
+            <button class="icon-btn" id="prev-pg" disabled title="Previous page">◀</button>
+            <span id="pg-ind">— / —</span>
+            <button class="icon-btn" id="next-pg" disabled title="Next page">▶</button>
+            <div class="sep" style="height:18px;margin:0 2px;"></div>
+            <!-- Zoom -->
+            <button class="icon-btn" id="zoom-out-btn" title="Zoom out">−</button>
+            <span class="zoom-lbl" id="zoom-lbl">150%</span>
+            <button class="icon-btn" id="zoom-in-btn" title="Zoom in">+</button>
+            <div class="sep" style="height:18px;margin:0 2px;"></div>
+            <button class="icon-btn" id="btn-bbox-toggle" title="Show/Hide all annotation boxes" style="font-size:11px; width: auto; padding: 0 8px;">🔲 Show All</button>
+            <button class="icon-btn" id="btn-calibrate" title="Drag to align overlay" style="font-size:11px; width: auto; padding: 0 8px;">🔧 Calibrate</button>
+            <button class="icon-btn" id="btn-toggle-pdf" title="Toggle MinerU annotated PDF" style="font-size:11px; width: auto; padding: 0 8px;">📑 Annotated PDF</button>
+          </div>
+        </div>
+        <!-- Annotation Color Legend -->
+        <div class="legend-strip" id="legend-strip">
+          <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Title</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>Paragraph</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>List</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div>Table</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div>Chart</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ec4899"></div>Image</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#eab308"></div>Aside</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#6b7280"></div>Header/Footer</div>
+        </div>
+        <!-- Calibration offset bar -->
+        <div class="calib-bar" id="calib-bar">
+          ⚙️ Drag to align &nbsp;│&nbsp;
+          X: <span class="calib-val" id="calib-x">0</span>
+          Y: <span class="calib-val" id="calib-y">0</span>
+          &nbsp;│&nbsp;
+          Scale: <button class="calib-sc" id="sc-down" title="Scale down">−</button>
+          <span class="calib-val" id="calib-sc">1.00</span>
+          <button class="calib-sc" id="sc-up" title="Scale up">+</button>
+          &nbsp;│&nbsp;
+          <button id="calib-reset" title="Reset all">↺ Reset</button>
+          <button id="calib-done" title="Done calibrating">✓ Done</button>
+        </div>
+        <div id="pdf-vp">
+          <div class="empty" id="pdf-empty" style="width:100%">
+            <div class="empty-ico">🗂</div>
+            <div class="empty-ttl">PDF Viewer</div>
+            <div class="empty-sub">The annotated layout PDF will appear here after extraction</div>
+          </div>
+          <div id="canvas-wrap" style="display:none">
+            <canvas id="pdf-canvas"></canvas>
+            <div id="bbox-ol"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HORIZONTAL GUTTER -->
+      <div class="hgutter" id="hgutter">
+        <span class="gutter-tip">DRAG</span>
+      </div>
+
+      <!-- RIGHT BOTTOM: JSON Explorer -->
+      <div id="json-pane">
+        <div class="ph">
+          <div class="ph-icon ico-json">🔬</div>
+          <span class="ph-title">Block Explorer</span>
+          <div class="ph-actions">
+            <span class="ph-badge" id="jblk-pill">0 blocks</span>
+            <button class="icon-btn" id="json-export-btn" title="Export JSON" style="font-size:11px">↓ JSON</button>
+          </div>
+        </div>
+        <div class="jtool">
+          <div class="ftabs">
+            <button class="ftab on"  data-f="all">All</button>
+            <button class="ftab"     data-f="paragraph">Text</button>
+            <button class="ftab"     data-f="title">Titles</button>
+            <button class="ftab"     data-f="list">Lists</button>
+            <button class="ftab"     data-f="table">Tables</button>
+            <button class="ftab"     data-f="chart">Charts</button>
+            <button class="ftab"     data-f="image">Figures</button>
+            <button class="ftab"     data-f="meta">Meta</button>
+          </div>
+          <input type="text" class="jsrch" id="jsrch" placeholder="🔍 Search blocks…">
+          <span class="jcnt" id="jcnt">0 shown</span>
+        </div>
+        <div id="jscroll">
+          <div class="jlist" id="jlist">
+            <div class="empty" id="json-empty" style="height:100px">
+              <div class="empty-ico">🔍</div>
+              <div class="empty-ttl">No data yet</div>
+              <div class="empty-sub">Content blocks appear after extraction</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /right-pane -->
+  </div><!-- /workspace -->
+</div><!-- /app -->
+
+<!-- Drop overlay -->
+<div id="drop-ov">
+  <div class="drop-ring">
+    <div class="drop-ico">📂</div>
+    <div class="drop-ttl">Drop your PDF</div>
+    <div class="drop-sub">Release to start MinerU extraction</div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     CDN DEPENDENCIES
+═══════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"            crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"  crossorigin="anonymous"></script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     APPLICATION LOGIC
+═══════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────
+   0. PDF.js WORKER
+───────────────────────────────────────────────────────────── */
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ─────────────────────────────────────────────────────────────
+   1. STATE
+───────────────────────────────────────────────────────────── */
+const S = {
+  contentList  : [],     // flat array of normalized blocks
+  pageBlocks   : [],     // array-of-arrays: pageBlocks[pageIdx] = [block, …]
+  imageMap     : {},
+  markdown     : '',
+  pdfDoc       : null,
+  currentPage  : 1,
+  totalPages   : 0,
+  nativeW      : 0,
+  nativeH      : 0,
+  activeFilter : 'all',
+  searchQuery  : '',
+  uploadedFile : null,
+  zoomScale    : 1.5,
+  theme        : 'dark',
+  mdToBlocks   : [],
+  blockToMd    : [],
+  pdfUrlLayout : null,
+  pdfUrlOriginal: null,
+  showLayout   : false,
+  showAllBoxes : true,   // default ON — show annotations directly
+  visualSummaries: [],
+  visualSummaryMarkdown: '',
+  imageCount: 0,
+};
+
+/* ─────────────────────────────────────────────────────────────
+   ANNOTATION COLOR MAP
+───────────────────────────────────────────────────────────── */
+const TYPE_COLORS = {
+  title:          { css: 'ct-title',          hex: '#8b5cf6' },
+  paragraph:      { css: 'ct-paragraph',      hex: '#22c55e' },
+  list:           { css: 'ct-list',           hex: '#3b82f6' },
+  table:          { css: 'ct-table',          hex: '#f97316' },
+  chart:          { css: 'ct-chart',          hex: '#ef4444' },
+  image:          { css: 'ct-image',          hex: '#ec4899' },
+  page_header:    { css: 'ct-page_header',    hex: '#6b7280' },
+  page_footer:    { css: 'ct-page_footer',    hex: '#6b7280' },
+  page_number:    { css: 'ct-page_number',    hex: '#6b7280' },
+  page_aside_text:{ css: 'ct-page_aside_text',hex: '#eab308' },
+};
+function getTypeCss(type) {
+  return (TYPE_COLORS[type] || { css: 'ct-unknown' }).css;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   NORMALIZE v2 CONTENT LIST
+   Converts the nested pages-of-blocks JSON into a flat array.
+   Each block gets: { type, text, bbox, page_idx, raw }
+───────────────────────────────────────────────────────────── */
+function normalizeContentList(raw) {
+  const flat = [];
+  const pageBlocks = [];
+
+  // Detect format: v2 = array-of-arrays, v1 = flat array of objects
+  const isV2 = Array.isArray(raw) && raw.length > 0 && Array.isArray(raw[0]);
+
+  if (isV2) {
+    raw.forEach((page, pageIdx) => {
+      const pageBucket = [];
+      page.forEach((block, orderInPage) => {
+        const norm = normalizeBlock(block, pageIdx, orderInPage);
+        flat.push(norm);
+        pageBucket.push(norm);
+      });
+      pageBlocks.push(pageBucket);
+    });
+  } else {
+    // v1 flat format — already has .text, .type, .bbox, .page_idx
+    raw.forEach((block, idx) => {
+      const pageIdx = block.page_idx ?? block.page ?? 0;
+      const norm = {
+        type: (block.type || block.block_type || 'unknown').toLowerCase(),
+        text: block.text || block.content || block.latex || '',
+        bbox: block.bbox || block.bounding_box || null,
+        page_idx: pageIdx,
+        order: idx,
+        img_path: block.img_path || block.image_path || null,
+        image_caption: block.image_caption || null,
+        raw: block,
+      };
+      flat.push(norm);
+      while (pageBlocks.length <= pageIdx) pageBlocks.push([]);
+      pageBlocks[pageIdx].push(norm);
+    });
+  }
+
+  // Compute per-page max bbox extents (the effective coordinate space)
+  const pageDims = pageBlocks.map(blocks => {
+    let maxX = 0, maxY = 0;
+    blocks.forEach(b => {
+      if (b.bbox) {
+        if (b.bbox[2] > maxX) maxX = b.bbox[2];
+        if (b.bbox[3] > maxY) maxY = b.bbox[3];
+      }
+    });
+    return { maxX, maxY };
+  });
+
+  // Global max for fallback (pages with very few/small blocks)
+  let globalMaxX = 0, globalMaxY = 0;
+  pageDims.forEach(d => {
+    if (d.maxX > globalMaxX) globalMaxX = d.maxX;
+    if (d.maxY > globalMaxY) globalMaxY = d.maxY;
+  });
+
+  return { flat, pageBlocks, pageDims, globalMaxX, globalMaxY };
+}
+
+function normalizeBlock(block, pageIdx, orderInPage) {
+  const type = (block.type || 'unknown').toLowerCase();
+  let text = '';
+  let imgPath = null;
+  let imgCaption = null;
+  let html = null;
+  const c = block.content;
+
+  if (c) {
+    // Extract text from the nested content model
+    if (c.title_content)        text = extractNestedText(c.title_content);
+    else if (c.paragraph_content) text = extractNestedText(c.paragraph_content);
+    else if (c.page_header_content) text = extractNestedText(c.page_header_content);
+    else if (c.page_footer_content) text = extractNestedText(c.page_footer_content);
+    else if (c.page_number_content) text = extractNestedText(c.page_number_content);
+    else if (c.page_aside_text_content) text = extractNestedText(c.page_aside_text_content);
+    else if (c.list_items)      text = extractListText(c.list_items);
+    else if (typeof c.content === 'string') text = c.content;
+    else if (typeof c === 'string') text = c;
+
+    // Image path
+    if (c.image_source && c.image_source.path) imgPath = c.image_source.path;
+
+    // Caption
+    if (c.image_caption && Array.isArray(c.image_caption) && c.image_caption.length > 0)
+      imgCaption = c.image_caption;
+    if (c.chart_caption && Array.isArray(c.chart_caption) && c.chart_caption.length > 0)
+      imgCaption = c.chart_caption;
+    if (c.table_caption && Array.isArray(c.table_caption) && c.table_caption.length > 0)
+      imgCaption = c.table_caption;
+
+    // HTML (for tables)
+    if (c.html) html = c.html;
+  }
+
+  return {
+    type,
+    text,
+    bbox: block.bbox || null,
+    page_idx: pageIdx,
+    order: orderInPage,
+    img_path: imgPath,
+    image_caption: imgCaption,
+    html,
+    sub_type: block.sub_type || null,
+    raw: block,
+  };
+}
+
+function extractNestedText(arr) {
+  if (!Array.isArray(arr)) return '';
+  return arr.map(item => {
+    if (typeof item === 'string') return item;
+    if (item.content && typeof item.content === 'string') return item.content;
+    return '';
+  }).join(' ').trim();
+}
+
+function extractListText(items) {
+  if (!Array.isArray(items)) return '';
+  return items.map(item => {
+    if (item.item_content) return extractNestedText(item.item_content);
+    return '';
+  }).join('\n').trim();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   2. DOM SHORTCUTS
+───────────────────────────────────────────────────────────── */
+const $  = id => document.getElementById(id);
+const el = {
+  url       : $('endpoint-input'),
+  fileIn    : $('file-input'),
+  upBtn     : $('upload-btn'),
+  progWrap  : $('prog-wrap'),
+  progFill  : $('prog-fill'),
+  progLbl   : $('prog-lbl'),
+  status    : $('status'),
+  stTxt     : $('status-txt'),
+  mdOut     : $('md-out'),
+  mdEmpty   : $('md-empty'),
+  pdfEmpty  : $('pdf-empty'),
+  cwrap     : $('canvas-wrap'),
+  canvas    : $('pdf-canvas'),
+  bboxOl    : $('bbox-ol'),
+  prevPg    : $('prev-pg'),
+  nextPg    : $('next-pg'),
+  pgInd     : $('pg-ind'),
+  zoomLbl   : $('zoom-lbl'),
+  jlist     : $('jlist'),
+  jcnt      : $('jcnt'),
+  jblkPill  : $('jblk-pill'),
+  jsrch     : $('jsrch'),
+  dropOv    : $('drop-ov'),
+  toast     : $('toast'),
+  backend   : $('backend-sel'),
+  formula   : $('chk-formula'),
+  table     : $('chk-table'),
+  caption   : $('chk-caption'),
+  icons     : $('chk-icons'),
+  themeBtn  : $('theme-btn'),
+  statRow   : $('stat-row'),
+  statWords : $('stat-words'),
+  statBlocks: $('stat-blocks'),
+  statImgs  : $('stat-imgs'),
+  statPages : $('stat-pages'),
+  statCost  : $('stat-cost'),
+  statGpuTime: $('stat-gpu-time'),
+  mdPill    : $('md-pill'),
+  legendStrip: $('legend-strip'),
+  bboxToggle : $('btn-bbox-toggle'),
+};
+
+/* ─────────────────────────────────────────────────────────────
+   3. THEME TOGGLE
+───────────────────────────────────────────────────────────── */
+function applyTheme(t) {
+  S.theme = t;
+  document.documentElement.setAttribute('data-theme', t);
+  el.themeBtn.textContent = t === 'dark' ? '🌙' : '☀️';
+  localStorage.setItem('mineru_theme', t);
+}
+
+el.themeBtn.addEventListener('click', () => {
+  applyTheme(S.theme === 'dark' ? 'light' : 'dark');
+});
+
+// Restore theme
+(function() {
+  const saved = localStorage.getItem('mineru_theme') || 'dark';
+  applyTheme(saved);
+})();
+
+/* ─────────────────────────────────────────────────────────────
+   4. CHIP TOGGLE SYNC
+───────────────────────────────────────────────────────────── */
+function syncChip(chk, chip) {
+  chip.classList.toggle('on', chk.checked);
+}
+el.formula.addEventListener('change', () => syncChip(el.formula, $('chip-formula')));
+el.table.addEventListener('change',   () => syncChip(el.table,   $('chip-table')));
+el.caption.addEventListener('change', () => syncChip(el.caption, $('chip-caption')));
+el.icons.addEventListener('change',   () => syncChip(el.icons,   $('chip-icons')));
+syncChip(el.formula, $('chip-formula'));
+syncChip(el.table,   $('chip-table'));
+syncChip(el.caption, $('chip-caption'));
+syncChip(el.icons,   $('chip-icons'));
+
+/* ─────────────────────────────────────────────────────────────
+   5. UTILITY
+───────────────────────────────────────────────────────────── */
+let _toastTimer;
+function toast(msg, type = 'info', ms = 3800) {
+  clearTimeout(_toastTimer);
+  el.toast.textContent = msg;
+  el.toast.className   = type;
+  el.toast.style.display = 'block';
+  _toastTimer = setTimeout(() => { el.toast.style.display = 'none'; }, ms);
+}
+
+function setStatus(cls, txt) {
+  el.status.className = cls;
+  el.stTxt.textContent = txt;
+}
+
+function setProgress(pct, lbl) {
+  el.progWrap.classList.add('on');
+  el.progFill.style.width = pct + '%';
+  el.progLbl.textContent  = lbl ?? pct + '%';
+}
+function clearProgress() {
+  el.progWrap.classList.remove('on');
+  el.progFill.style.width = '0%';
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+/* ─────────────────────────────────────────────────────────────
+   6. PERSISTENCE
+───────────────────────────────────────────────────────────── */
+(function restorePrefs() {
+  const url = localStorage.getItem('mineru_endpoint');
+  // Default to same origin when served from the FastAPI bridge
+  el.url.value = url || (window.location.origin !== 'null' ? window.location.origin : 'http://127.0.0.1:8000');
+
+  const be = localStorage.getItem('mineru_backend');
+  if (be) el.backend.value = be;
+
+  const fm = localStorage.getItem('mineru_formula');
+  if (fm !== null) { el.formula.checked = fm === '1'; syncChip(el.formula, $('chip-formula')); }
+
+  const tb = localStorage.getItem('mineru_table');
+  if (tb !== null) { el.table.checked = tb === '1'; syncChip(el.table, $('chip-table')); }
+
+  el.url.addEventListener('input',    () => localStorage.setItem('mineru_endpoint', el.url.value.trim()));
+  el.backend.addEventListener('change',() => localStorage.setItem('mineru_backend',  el.backend.value));
+  el.formula.addEventListener('change',() => localStorage.setItem('mineru_formula',  el.formula.checked ? '1' : '0'));
+  el.table.addEventListener('change',  () => localStorage.setItem('mineru_table',    el.table.checked   ? '1' : '0'));
+})();
+
+/* ─────────────────────────────────────────────────────────────
+   7. RESIZABLE PANES — Drag Engine
+───────────────────────────────────────────────────────────── */
+(function initResizers() {
+  const workspace = $('workspace');
+  const leftPane  = $('left-pane');
+  const rightPane = $('right-pane');
+  const pdfPane   = $('pdf-pane');
+  const jsonPane  = $('json-pane');
+  const vGutter   = $('vgutter');
+  const hGutter   = $('hgutter');
+
+  let dragging = null;
+  let startX, startY, startW, startH;
+
+  function onMouseDown(e, type) {
+    dragging = type;
+    startX = e.clientX;
+    startY = e.clientY;
+    if (type === 'v') {
+      startW = leftPane.getBoundingClientRect().width;
+      vGutter.classList.add('dragging');
+    } else {
+      startH = pdfPane.getBoundingClientRect().height;
+      hGutter.classList.add('dragging');
+    }
+    document.body.style.cursor = type === 'v' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  }
+
+  function onMouseMove(e) {
+    if (!dragging) return;
+    if (dragging === 'v') {
+      const totalW = workspace.getBoundingClientRect().width;
+      const newW   = Math.max(160, Math.min(startW + (e.clientX - startX), totalW - 220));
+      leftPane.style.width = newW + 'px';
+    } else {
+      const totalH = $('right-pane').getBoundingClientRect().height;
+      const newH   = Math.max(80, Math.min(startH + (e.clientY - startY), totalH - 80));
+      pdfPane.style.height = newH + 'px';
+    }
+  }
+
+  function onMouseUp() {
+    if (!dragging) return;
+    vGutter.classList.remove('dragging');
+    hGutter.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    dragging = null;
+    // Re-render PDF at new size
+    if (S.pdfDoc) renderPage(S.currentPage);
+  }
+
+  vGutter.addEventListener('mousedown', e => onMouseDown(e, 'v'));
+  hGutter.addEventListener('mousedown', e => onMouseDown(e, 'h'));
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup',   onMouseUp);
+
+  // Touch support
+  function onTouchStart(e, type) {
+    const t = e.touches[0];
+    onMouseDown({ clientX: t.clientX, clientY: t.clientY, preventDefault: () => e.preventDefault() }, type);
+  }
+  function onTouchMove(e) { const t = e.touches[0]; onMouseMove({ clientX: t.clientX, clientY: t.clientY }); }
+  function onTouchEnd()   { onMouseUp(); }
+
+  vGutter.addEventListener('touchstart', e => onTouchStart(e, 'v'), { passive: false });
+  hGutter.addEventListener('touchstart', e => onTouchStart(e, 'h'), { passive: false });
+  document.addEventListener('touchmove',  onTouchMove, { passive: false });
+  document.addEventListener('touchend',   onTouchEnd);
+})();
+
+/* ─────────────────────────────────────────────────────────────
+   8. DRAG & DROP INGESTION
+───────────────────────────────────────────────────────────── */
+let _dragCounter = 0;
+window.addEventListener('dragenter', e => {
+  e.preventDefault(); _dragCounter++;
+  el.dropOv.classList.add('on');
+});
+window.addEventListener('dragleave', e => {
+  _dragCounter--;
+  if (_dragCounter <= 0) { _dragCounter = 0; el.dropOv.classList.remove('on'); }
+});
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault(); _dragCounter = 0;
+  el.dropOv.classList.remove('on');
+  const f = e.dataTransfer?.files?.[0];
+  if (f?.type === 'application/pdf') {
+    processFile(f);
+  } else {
+    toast('Please drop a valid PDF file.', 'error');
+  }
+});
+
+el.fileIn.addEventListener('change', () => {
+  if (el.fileIn.files[0]) processFile(el.fileIn.files[0]);
+  el.fileIn.value = '';
+});
+
+/* ─────────────────────────────────────────────────────────────
+   9. NETWORK LAYER
+───────────────────────────────────────────────────────────── */
+async function processFile(file) {
+  const endpoint = el.url.value.trim().replace(/\/$/, '');
+  if (!endpoint) {
+    toast('Paste your Ngrok URL in the bar above first.', 'error');
+    el.url.focus(); return;
+  }
+
+  S.uploadedFile = file;
+  S.gpuStartTime = Date.now();   // ← track GPU processing time
+  el.upBtn.disabled = true;
+  setStatus('busy', 'Uploading…');
+  setProgress(5, 'Payload…');
+  toast(`⚡ Uploading "${file.name}" to MinerU GPU…`, 'info', 120000);
+
+  // ── FormData — field names matched to the local bridge / MinerU API ──
+  const fd = new FormData();
+  fd.append('files',          file, file.name);                          // ✅ API field: files
+  fd.append('model_version',  el.backend.value);                         // MinerU API field
+  fd.append('return_md',      'true');                                    // ✅ API field: return_md
+  fd.append('response_format_zip', 'true');                              // ✅ API field: response_format_zip
+  fd.append('enable_formula', el.formula.checked ? 'true' : 'false');
+  fd.append('enable_table',   el.table.checked   ? 'true' : 'false');
+  fd.append('return_content_list', 'true');                              // ✅ needed for block explorer
+  
+  // ── MinerU VLM Enhancements ──
+  fd.append('enable_image_caption', el.caption.checked ? 'true' : 'false');
+  fd.append('drop_small_images', el.icons.checked ? 'true' : 'false');
+  if (el.icons.checked) {
+    fd.append('image_min_width', '50');
+    fd.append('image_min_height', '50');
+  }
+
+  // ── Ngrok bypass note ────────────────────────────────────────────
+  // Custom headers (ngrok-skip-browser-warning) trigger a CORS
+  // preflight OPTIONS request. If the server has no CORS middleware,
+  // that preflight fails and Chrome reports "Failed to fetch".
+  // Solution A (preferred): add CORSMiddleware to FastAPI (see toast).
+  // Solution B (quick demo): launch Chrome with --disable-web-security.
+  // We send the header anyway — it helps when CORS IS configured.
+  try {
+    setProgress(5, 'Submitting async task...');
+    const submitResp = await fetch(`${endpoint}/tasks`, {
+      method : 'POST',
+      headers: { 'ngrok-skip-browser-warning': 'true', 'Accept': 'application/json' },
+      body   : fd,
+    });
+
+    if (!submitResp.ok) throw new Error(`Server ${submitResp.status} on /tasks: ${await submitResp.text()}`);
+
+    // Parse task_id from response. Usually it's {"task_id": "uuid"} or just the string.
+    const submitData = await submitResp.json();
+    const taskId = typeof submitData === 'string' ? submitData : (submitData.task_id || submitData.id || submitData.taskId);
+    if (!taskId) throw new Error(`Could not parse task_id from server response: ${JSON.stringify(submitData)}`);
+    console.log(`[MinerU] Submitted Task ID: ${taskId}`);
+
+    // 3. Poll for status
+    let isDone = false;
+    let pollCount = 0;
+    while (!isDone) {
+      pollCount++;
+      // Ping every 5 seconds
+      await new Promise(r => setTimeout(r, 5000));
+      setProgress(15 + (pollCount % 60), `MinerU processing... (${pollCount * 5}s)`);
+      
+      const statusResp = await fetch(`${endpoint}/tasks/${taskId}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true', 'Accept': 'application/json' }
+      });
+      if (!statusResp.ok) throw new Error(`Failed to check status: ${statusResp.status}`);
+      
+      const statusData = await statusResp.json();
+      const stateStr = (typeof statusData === 'string' 
+        ? statusData 
+        : (statusData.status || statusData.state || statusData.task_status || '')).toString().toLowerCase();
+
+      console.log(`[MinerU] Task Status:`, statusData);
+
+      if (stateStr === 'summarizing_visuals') {
+        const done = statusData.visuals_done || 0;
+        setProgress(82, `Summarizing extracted visuals... ${done} done`);
+      }
+
+      if (stateStr === 'done' || stateStr === 'completed' || stateStr === 'success' || stateStr === 'finished') {
+        isDone = true;
+      } else if (stateStr === 'failed' || stateStr === 'error') {
+        throw new Error(`GPU Task Failed: ${JSON.stringify(statusData)}`);
+      }
+      // Otherwise keep polling
+    }
+
+    // 4. Download Result ZIP
+    setProgress(80, 'Downloading Result ZIP...');
+    const resultResp = await fetch(`${endpoint}/tasks/${taskId}/result`, {
+      headers: { 'ngrok-skip-browser-warning': 'true' }
+    });
+
+    if (!resultResp.ok) throw new Error(`Failed to download result: ${resultResp.status}`);
+
+    const ct = resultResp.headers.get('Content-Type') || '';
+    if (ct.includes('text/html')) {
+      throw new Error(
+        'NGROK_INTERSTITIAL: Server returned an HTML page instead of a ZIP. ' +
+        'Open your Ngrok URL in a browser tab first and click "Visit Site".'
+      );
+    }
+
+    setProgress(90, 'Streaming ZIP...');
+    const buf = await streamWithProgress(resultResp);
+
+    // ── Guard: zero-byte response ─────────────────────────────────────
+    if (buf.byteLength === 0) {
+      throw new Error('Empty response received — the server may still be warming up. Wait a moment and retry.');
+    }
+
+    setProgress(92, 'Inflating and rendering…');
+    setStatus('busy', 'Extracting…');
+
+    await routeZipAssets(buf, file.name);
+
+    setProgress(100, 'Done ✓');
+    setStatus('ready', 'Done');
+    toast(`✅ "${file.name}" extracted successfully!`, 'success', 5000);
+    setTimeout(clearProgress, 2000);
+
+  } catch (err) {
+    console.error('[MinerU]', err);
+    setStatus('err', 'Error');
+    clearProgress();
+
+    let msg = err.message;
+
+    // Friendly messages for known failure modes
+    if (err.message.includes('NGROK_INTERSTITIAL')) {
+      msg = '🚧 Ngrok showed its warning page. Open the Ngrok URL in a tab, click "Visit Site", then retry here.';
+    } else if (/Failed to fetch|NetworkError|net::ERR/i.test(msg)) {
+      // Most likely root cause when URL is reachable: CORS not enabled on FastAPI.
+      // The browser blocks the request before it even leaves because the
+      // preflight OPTIONS response doesn't include CORS headers.
+      msg = '🔒 CORS blocked. Your browser cannot reach the API because the FastAPI ' +
+            'server has no CORS headers.\n\n' +
+            'Fix: Add this to your Colab FastAPI cell and restart:\n' +
+            'from fastapi.middleware.cors import CORSMiddleware\n' +
+            'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])';
+      // Show a longer-lived toast with the fix copied to clipboard
+      navigator.clipboard?.writeText(
+        'from fastapi.middleware.cors import CORSMiddleware\n' +
+        'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])'
+      ).catch(()=>{});
+      toast('❌ CORS blocked — FastAPI fix copied to clipboard! Paste it in Colab above app=FastAPI() and restart the cell.', 'error', 14000);
+      return; // skip the generic toast below
+    } else if (/cors/i.test(msg)) {
+      msg = '🔒 CORS blocked. Add CORSMiddleware to your FastAPI server.';
+    }
+
+    toast('❌ ' + msg, 'error', 10000);
+  } finally {
+    el.upBtn.disabled = false;
+  }
+}
+
+async function streamWithProgress(resp) {
+  const reader = resp.body.getReader();
+  const total  = parseInt(resp.headers.get('Content-Length') || '0', 10);
+  const chunks = []; let rx = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); rx += value.length;
+    if (total > 0) {
+      const p = Math.round(30 + (rx / total) * 38);
+      setProgress(p, `${(rx/1048576).toFixed(1)} MB`);
+    }
+  }
+
+  const out = new Uint8Array(rx); let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out.buffer;
+}
+
+// ── Resume Task Logic ──
+async function resumeTask() {
+  const endpoint = el.url.value.trim().replace(/\/$/, '');
+  if (!endpoint) {
+    toast('Paste your Ngrok URL in the bar above first.', 'error');
+    el.url.focus(); return;
+  }
+  
+  const taskId = prompt('Enter the Task ID to resume:');
+  if (!taskId) return;
+  
+  S.uploadedFile = { name: 'ResumedTask.pdf' };
+  S.gpuStartTime = Date.now();
+  el.upBtn.disabled = true;
+  setStatus('busy', 'Resuming…');
+  setProgress(10, 'Polling…');
+  toast(`⚡ Resuming Task: ${taskId}`, 'info', 10000);
+  
+  try {
+    await pollTask(endpoint, taskId);
+  } catch (err) {
+    toast(`[MinerU] Resume Error: ${err.message}`, 'error', 120000);
+    console.error('[MinerU] Resume err', err);
+    el.upBtn.disabled = false;
+    setStatus('err', 'Error');
+    clearProgress();
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   9b. POLL TASK — shared between processFile resume and resumeTask
+───────────────────────────────────────────────────────────── */
+async function pollTask(endpoint, taskId) {
+  let isDone = false;
+  let pollCount = 0;
+  while (!isDone) {
+    pollCount++;
+    await new Promise(r => setTimeout(r, 5000));
+    setProgress(15 + (pollCount % 60), `MinerU processing… (${pollCount * 5}s)`);
+
+    const statusResp = await fetch(`${endpoint}/tasks/${taskId}`, {
+      headers: { 'ngrok-skip-browser-warning': 'true', 'Accept': 'application/json' }
+    });
+    if (!statusResp.ok) throw new Error(`Failed to check status: ${statusResp.status}`);
+
+    const statusData = await statusResp.json();
+    const stateStr = (typeof statusData === 'string'
+      ? statusData
+      : (statusData.status || statusData.state || statusData.task_status || '')).toString().toLowerCase();
+
+    console.log(`[MinerU] Task Status:`, statusData);
+
+    if (stateStr === 'summarizing_visuals') {
+      const done = statusData.visuals_done || 0;
+      setProgress(82, `Summarizing extracted visuals… ${done} done`);
+    }
+
+    if (stateStr === 'done' || stateStr === 'completed' || stateStr === 'success' || stateStr === 'finished') {
+      isDone = true;
+    } else if (stateStr === 'failed' || stateStr === 'error') {
+      throw new Error(`GPU Task Failed: ${JSON.stringify(statusData)}`);
+    }
+  }
+
+  // Download Result ZIP
+  setProgress(80, 'Downloading Result ZIP…');
+  const resultResp = await fetch(`${endpoint}/tasks/${taskId}/result`, {
+    headers: { 'ngrok-skip-browser-warning': 'true' }
+  });
+  if (!resultResp.ok) throw new Error(`Failed to download result: ${resultResp.status}`);
+
+  setProgress(90, 'Streaming ZIP…');
+  const buf = await streamWithProgress(resultResp);
+  if (buf.byteLength === 0) throw new Error('Empty response — server may still be warming up.');
+
+  setProgress(92, 'Inflating…');
+  setStatus('busy', 'Extracting…');
+  await routeZipAssets(buf, S.uploadedFile?.name || 'document.pdf');
+
+  setProgress(100, 'Done ✓');
+  setStatus('ready', 'Done');
+  toast(`✅ Extraction complete!`, 'success', 5000);
+  setTimeout(clearProgress, 2000);
+  el.upBtn.disabled = false;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   10. ZIP ASSET ROUTER
+───────────────────────────────────────────────────────────── */
+async function routeZipAssets(buf, origName) {
+  S.lastZipBuf = buf;  // Store for download
+  // Show download button
+  const dlBtn = $('dl-zip-btn');
+  if (dlBtn) dlBtn.style.display = '';
+
+  const zip  = await JSZip.loadAsync(buf);
+  const keys = Object.keys(zip.files);
+
+  S.contentList = []; S.pageBlocks = []; S.imageMap = {}; S.markdown = '';
+  S.visualSummaries = []; S.visualSummaryMarkdown = ''; S.imageCount = 0;
+
+  // ① Images first
+  const imgKeys = keys.filter(k =>
+    !zip.files[k].dir && /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i.test(k));
+  S.imageCount = imgKeys.length;
+  await Promise.all(imgKeys.map(async k => {
+    const blob = await zip.files[k].async('blob');
+    const url  = URL.createObjectURL(blob);
+    const name = k.split('/').pop();
+    // Store multiple key variants for flexible lookup
+    S.imageMap[k] = url;          // full ZIP path: "prefix/images/abc.jpg"
+    S.imageMap[name] = url;       // basename only: "abc.jpg"
+    // Also store with "images/" prefix for markdown paths like "images/abc.jpg"
+    S.imageMap['images/' + name] = url;
+    // And the path without the first directory segment (handles nested zips)
+    const parts = k.split('/');
+    if (parts.length > 1) {
+      S.imageMap[parts.slice(1).join('/')] = url;  // "images/abc.jpg"
+    }
+    if (parts.length > 2) {
+      S.imageMap[parts.slice(2).join('/')] = url;  // "abc.jpg" (alternate)
+    }
+  }));
+  console.log(`[MinerU] imageMap has ${Object.keys(S.imageMap).length} entries for ${imgKeys.length} images`);
+
+  // ② Markdown
+  const mdKey = keys.find(k => !zip.files[k].dir && /(^|\/)full\.md$/i.test(k))
+             || keys.find(k => !zip.files[k].dir && /(^|\/)output\.md$/i.test(k))
+             || keys.find(k => !zip.files[k].dir && k.endsWith('.md') && !/visual_summaries\.md$/i.test(k));
+  if (mdKey) S.markdown = await zip.files[mdKey].async('string');
+
+  const visualMdKey = keys.find(k => !zip.files[k].dir && /visual_summaries\.md$/i.test(k));
+  if (visualMdKey) S.visualSummaryMarkdown = await zip.files[visualMdKey].async('string');
+
+  const visualJsonKey = keys.find(k => !zip.files[k].dir && /visual_summaries\.json$/i.test(k));
+  if (visualJsonKey) {
+    try { S.visualSummaries = JSON.parse(await zip.files[visualJsonKey].async('string')); }
+    catch(e) { console.warn('[MinerU] visual_summaries.json parse failed', e); }
+  }
+
+  // ③ Content list — support both v1 and v2 filenames
+  const jKey = keys.find(k => !zip.files[k].dir && /content_list[^/]*\.json$/i.test(k));
+  if (jKey) {
+    try {
+      const rawJson = JSON.parse(await zip.files[jKey].async('string'));
+      const { flat, pageBlocks, pageDims, globalMaxX, globalMaxY } = normalizeContentList(rawJson);
+      S.contentList = flat;
+      S.pageBlocks  = pageBlocks;
+      S.pageDims    = pageDims;
+      S.globalMaxX  = globalMaxX;
+      S.globalMaxY  = globalMaxY;
+      console.log(`[MinerU] Normalized ${flat.length} blocks across ${pageBlocks.length} pages, globalMax: ${globalMaxX}x${globalMaxY}`);
+    } catch(e) { console.warn('[MinerU] JSON parse failed', e); }
+  }
+
+  // ④ Layout PDF
+  S.pdfUrlOriginal = null;
+  S.pdfUrlLayout = null;
+  
+  if (S.uploadedFile && S.uploadedFile instanceof File) {
+    S.pdfUrlOriginal = URL.createObjectURL(S.uploadedFile);
+  }
+  const lKey = keys.find(k => !zip.files[k].dir && (k.endsWith('_layout.pdf') || k.endsWith('layout.pdf')));
+  if (lKey) {
+    const blob = await zip.files[lKey].async('blob');
+    S.pdfUrlLayout = URL.createObjectURL(blob);
+  }
+
+  // Also check for original PDF in the ZIP itself
+  if (!S.pdfUrlOriginal) {
+    const origKey = keys.find(k => !zip.files[k].dir && k.endsWith('.pdf') && !k.includes('layout'));
+    if (origKey) {
+      const blob = await zip.files[origKey].async('blob');
+      S.pdfUrlOriginal = URL.createObjectURL(blob);
+    }
+  }
+
+  let pdfUrl = S.showLayout && S.pdfUrlLayout ? S.pdfUrlLayout : (S.pdfUrlOriginal || S.pdfUrlLayout);
+
+  // ⑤ Record GPU processing time
+  if (S.gpuStartTime) {
+    S.gpuElapsedMs = Date.now() - S.gpuStartTime;
+  }
+
+  // ⑥ Render
+  if (S.markdown) renderMarkdown(S.markdown);
+  if (S.visualSummaryMarkdown) appendVisualSummaries(S.visualSummaryMarkdown);
+  if (pdfUrl)     await loadPDF(pdfUrl);
+  renderJSONExplorer();
+  updateStats();
+
+  // Show legend if we have content
+  if (S.contentList.length > 0) {
+    el.legendStrip.classList.add('visible');
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   11. STATS UPDATE
+───────────────────────────────────────────────────────────── */
+function updateStats() {
+  el.statRow.classList.remove('hidden');
+  const words  = S.markdown.split(/\s+/).filter(Boolean).length;
+  const blocks = S.contentList.length;
+  const imgs   = S.imageCount || 0;
+  const pages  = S.totalPages || S.pageBlocks.length;
+
+  // Real GPU cost: T4 @ $0.30/hr
+  const T4_RATE_PER_HR = 0.30;
+  let gpuTimeStr = '—';
+  let gpuCostStr = '—';
+  if (S.gpuElapsedMs && S.gpuElapsedMs > 0) {
+    const secs = S.gpuElapsedMs / 1000;
+    const mins = Math.floor(secs / 60);
+    const remSecs = Math.floor(secs % 60);
+    gpuTimeStr = mins > 0 ? `${mins}m ${remSecs}s` : `${remSecs}s`;
+    const hours = secs / 3600;
+    const cost  = hours * T4_RATE_PER_HR;
+    gpuCostStr = '$' + cost.toFixed(4);
+  }
+
+  el.statWords.textContent  = words.toLocaleString();
+  el.statBlocks.textContent = blocks.toLocaleString();
+  el.statImgs.textContent   = imgs.toLocaleString();
+  el.statPages.textContent  = pages.toLocaleString();
+  el.statGpuTime.textContent = gpuTimeStr;
+  el.statCost.textContent   = gpuCostStr;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   12. MARKDOWN RENDERER
+───────────────────────────────────────────────────────────── */
+// ── Bounding Box Scaling & Overlays ──
+function getPdfScaleRatio() {
+  let maxX = 0;
+  if (S.contentList) {
+    S.contentList.forEach(b => {
+      const box = b.bbox || b.bounding_box;
+      if (box && box[2] > maxX) maxX = box[2];
+    });
+  }
+
+  let maxCoordinate;
+  if (maxX > 800 && maxX <= 1010) {
+    maxCoordinate = 1000;
+  } else if (maxX > S.nativeW * 0.8 && maxX < S.nativeW * 1.2) {
+    maxCoordinate = S.nativeW;
+  } else {
+    maxCoordinate = maxX > 0 ? maxX : S.nativeW;
+  }
+
+  return {
+    scaleX: maxCoordinate === 1000 ? 1000 : maxCoordinate,
+    scaleY: maxCoordinate === 1000 ? 1000 : (S.nativeH / S.nativeW) * maxCoordinate,
+  };
+}
+
+function buildMapping() {
+  const mdNodes = Array.from(el.mdOut.querySelectorAll('.mdb'));
+  S.mdToBlocks = mdNodes.map(() => []);
+  S.blockToMd = new Array(S.contentList.length).fill(-1);
+
+  // Sequential forward-only pointer — prevents cross-page mapping
+  let mdPtr = 0;
+
+  for (let i = 0; i < S.contentList.length; i++) {
+    const block = S.contentList[i];
+    const typeRaw = (block.type || '').toLowerCase();
+
+    // For images/charts, find matching img in DOM
+    if (typeRaw === 'image' || typeRaw === 'figure' || typeRaw === 'chart') {
+      const path = block.img_path;
+      if (path) {
+        const name = path.split('/').pop();
+        for (let j = 0; j < mdNodes.length; j++) {
+          const img = mdNodes[j].querySelector('img');
+          if (img) {
+            const origSrc = img.getAttribute('data-orig-src') || '';
+            if (origSrc.includes(name)) {
+              S.mdToBlocks[j].push(i);
+              S.blockToMd[i] = j;
+              if (j >= mdPtr) mdPtr = j;
+              break;
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    const rawText = (block.text || '').replace(/\s+/g, '').toLowerCase();
+    // Require at least 10 chars for matching to avoid false positives
+    if (rawText.length < 10) continue;
+
+    // Search FORWARD only from mdPtr, max 30 nodes ahead
+    let bestMatch = -1;
+    const searchLimit = Math.min(30, mdNodes.length);
+    for (let j = 0; j < searchLimit; j++) {
+      const idx = (mdPtr + j) % mdNodes.length;
+      const mdText = mdNodes[idx].textContent.replace(/\s+/g, '').toLowerCase();
+      if (mdText.length < 5) continue;
+
+      // Use first 40 chars of block text for matching (enough to be unique)
+      const matchSnippet = rawText.slice(0, 40);
+      if (mdText.includes(matchSnippet)) {
+        bestMatch = idx;
+        break;
+      }
+    }
+
+    if (bestMatch !== -1) {
+      S.mdToBlocks[bestMatch].push(i);
+      S.blockToMd[i] = bestMatch;
+      mdPtr = bestMatch;
+    }
+  }
+  console.log(`[buildMapping] Mapped ${S.blockToMd.filter(x => x !== -1).length}/${S.contentList.length} blocks to ${mdNodes.length} MD nodes`);
+}
+
+function renderMarkdown(md) {
+  marked.setOptions({ breaks: true, gfm: true });
+  let html = marked.parse(md);
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+
+  // Fix image SRCs natively in DOM
+  tmp.querySelectorAll('img').forEach(img => {
+    const src = img.getAttribute('src');
+    if (!src) return;
+    
+    let url = null;
+    try {
+      const decoded = decodeURIComponent(src);
+      const name = decoded.split('/').pop();
+      // Try multiple lookup strategies
+      url = S.imageMap[decoded]
+         || S.imageMap[name]
+         || S.imageMap[src]
+         || S.imageMap[src.split('/').pop()]
+         || S.imageMap['images/' + name];
+    } catch(e) {
+      const name = src.split('/').pop();
+      url = S.imageMap[src] || S.imageMap[name] || S.imageMap['images/' + name];
+    }
+    
+    // Fallback: suffix match — find any key that ends with the filename
+    if (!url) {
+      const srcName = src.split('/').pop();
+      const matchKey = Object.keys(S.imageMap).find(k => k.endsWith('/' + srcName) || k === srcName);
+      if (matchKey) url = S.imageMap[matchKey];
+    }
+    
+    if (url) {
+      img.src = url;
+      img.setAttribute('data-orig-src', src);
+    } else {
+      console.warn('[MinerU] Missing image for markdown img src:', src, '| imageMap keys sample:', Object.keys(S.imageMap).slice(0, 5));
+    }
+  });
+
+  el.mdOut.innerHTML = '';
+
+  Array.from(tmp.children).forEach((child, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className    = 'mdb';
+    wrap.dataset.bIdx = idx;
+    wrap.appendChild(child.cloneNode(true));
+    el.mdOut.appendChild(wrap);
+  });
+
+  buildMapping();
+
+  // Inject missing images
+  for (let i = 0; i < S.contentList.length; i++) {
+     const block = S.contentList[i];
+     const path = block.img_path || block.image_path;
+     if (path) {
+        const name = path.split('/').pop();
+        const url = S.imageMap[path] || S.imageMap[name];
+        if (url) {
+           const mdIdx = S.blockToMd[i];
+           if (mdIdx !== -1) {
+              const mdNode = el.mdOut.querySelector(`[data-b-idx="${mdIdx}"]`);
+              if (mdNode) {
+                 // Check if the node already has THIS image
+                 let hasImg = false;
+                 mdNode.querySelectorAll('img').forEach(img => {
+                    const origSrc = img.getAttribute('data-orig-src') || '';
+                    if (origSrc.includes(name) || img.src === url) hasImg = true;
+                 });
+                 if (!hasImg) {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    mdNode.appendChild(img);
+                 }
+                 
+                 // Inject Caption if VLM generated one
+                 if (block.image_caption && Array.isArray(block.image_caption) && block.image_caption.length > 0) {
+                    if (!mdNode.querySelector('.img-caption')) {
+                       const cap = document.createElement('div');
+                       cap.className = 'img-caption';
+                       cap.style = 'font-size: 0.85em; color: var(--fg-muted); text-align: center; margin-top: 5px; margin-bottom: 15px; font-style: italic; padding: 6px; background: rgba(99,102,241,0.05); border-radius: 4px; border: 1px dashed rgba(99,102,241,0.3);';
+                       cap.innerHTML = `<strong>✨ AI Caption:</strong> ${block.image_caption.join(" ")}`;
+                       mdNode.appendChild(cap);
+                    }
+                 }
+              }
+           } else {
+              const wrap = document.createElement('div');
+              wrap.className = 'mdb';
+              const newIdx = S.mdToBlocks.length;
+              wrap.dataset.bIdx = newIdx;
+              const img = document.createElement('img');
+              img.src = url;
+              wrap.appendChild(img);
+              
+              if (block.image_caption && Array.isArray(block.image_caption) && block.image_caption.length > 0) {
+                 const cap = document.createElement('div');
+                 cap.className = 'img-caption';
+                 cap.style = 'font-size: 0.85em; color: var(--fg-muted); text-align: center; margin-top: 5px; margin-bottom: 15px; font-style: italic; padding: 6px; background: rgba(99,102,241,0.05); border-radius: 4px; border: 1px dashed rgba(99,102,241,0.3);';
+                 cap.innerHTML = `<strong>✨ AI Caption:</strong> ${block.image_caption.join(" ")}`;
+                 wrap.appendChild(cap);
+              }
+              
+              el.mdOut.appendChild(wrap);
+              S.mdToBlocks.push([i]);
+              S.blockToMd[i] = newIdx;
+           }
+        }
+     }
+  }
+
+  el.mdEmpty?.remove();
+  el.mdPill.textContent = 'Rendered';
+
+  try {
+    renderMathInElement(el.mdOut, {
+      delimiters: [
+        { left: '$$',  right: '$$',  display: true  },
+        { left: '$',   right: '$',   display: false },
+        { left: '\\[', right: '\\]', display: true  },
+        { left: '\\(', right: '\\)', display: false },
+      ],
+      throwOnError: false,
+    });
+  } catch(e) { console.warn('[KaTeX]', e); }
+
+  el.mdOut.querySelectorAll('.mdb').forEach(b => {
+    b.addEventListener('mouseenter', () => onMdHover(+b.dataset.bIdx));
+    b.addEventListener('mouseleave',  clearBbox);
+  });
+}
+
+function appendVisualSummaries(md) {
+  if (!md || !md.trim()) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'mdb visual-summary-panel';
+  wrap.innerHTML = marked.parse(md);
+  el.mdOut.appendChild(wrap);
+  el.mdPill.textContent = S.visualSummaries.length
+    ? `${S.visualSummaries.length} visuals summarized`
+    : 'Visual summaries';
+}
+
+/* Copy markdown button */
+$('md-copy-btn').addEventListener('click', () => {
+  if (!S.markdown) { toast('No markdown to copy.', 'warn'); return; }
+  navigator.clipboard.writeText(S.markdown)
+    .then(() => toast('📋 Markdown copied to clipboard!', 'success', 2500))
+    .catch(() => toast('Copy failed.', 'error'));
+});
+
+/* Download raw result ZIP */
+$('dl-zip-btn').addEventListener('click', () => {
+  if (!S.lastZipBuf) { toast('No ZIP to download. Run extraction first.', 'warn'); return; }
+  const blob = new Blob([S.lastZipBuf], { type: 'application/zip' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const name = (S.uploadedFile?.name || 'document').replace(/\.pdf$/i, '');
+  a.href     = url;
+  a.download = `${name}_mineru_result.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('\u2b07 ZIP downloaded!', 'success', 2500);
+});
+
+/* ─────────────────────────────────────────────────────────────
+   13. PDF RENDERER + ZOOM
+───────────────────────────────────────────────────────────── */
+async function loadPDF(url) {
+  try {
+    S.pdfDoc      = await pdfjsLib.getDocument(url).promise;
+    S.totalPages  = S.pdfDoc.numPages;
+    S.currentPage = 1;
+    el.pdfEmpty.style.display = 'none';
+    el.cwrap.style.display    = 'block';
+    updatePgCtrl();
+    await renderPage(1);
+  } catch(e) {
+    console.error('[PDF.js]', e);
+    toast('PDF render error: ' + e.message, 'error');
+  }
+}
+
+async function renderPage(n) {
+  if (!S.pdfDoc) return;
+  const page  = await S.pdfDoc.getPage(n);
+  const vp1   = page.getViewport({ scale: 1 });
+  const vpS   = page.getViewport({ scale: S.zoomScale });
+
+  S.nativeW = vp1.width; S.nativeH = vp1.height;
+  el.canvas.width  = vpS.width;
+  el.canvas.height = vpS.height;
+
+  await page.render({ canvasContext: el.canvas.getContext('2d'), viewport: vpS }).promise;
+  el.bboxOl.innerHTML = '';
+  // Auto-draw all annotation bboxes if showAllBoxes is on
+  if (S.showAllBoxes && S.contentList.length > 0) {
+    drawAllBboxes();
+  }
+}
+
+function updatePgCtrl() {
+  el.pgInd.textContent = `${S.currentPage} / ${S.totalPages}`;
+  el.prevPg.disabled   = S.currentPage <= 1;
+  el.nextPg.disabled   = S.currentPage >= S.totalPages;
+  el.zoomLbl.textContent = Math.round(S.zoomScale * 100) + '%';
+}
+
+el.prevPg.addEventListener('click', async () => {
+  if (S.currentPage > 1) { S.currentPage--; updatePgCtrl(); await renderPage(S.currentPage); }
+});
+el.nextPg.addEventListener('click', async () => {
+  if (S.currentPage < S.totalPages) { S.currentPage++; updatePgCtrl(); await renderPage(S.currentPage); }
+});
+
+$('btn-toggle-pdf').addEventListener('click', async () => {
+  if (!S.pdfUrlLayout) {
+    toast('No Annotated PDF found in extraction results.', 'info');
+    return;
+  }
+  S.showLayout = !S.showLayout;
+  const btn = $('btn-toggle-pdf');
+  if (S.showLayout) {
+    btn.style.background = 'var(--accent-soft)';
+    btn.style.color = 'var(--accent)';
+  } else {
+    btn.style.background = '';
+    btn.style.color = '';
+  }
+  let pdfUrl = S.showLayout && S.pdfUrlLayout ? S.pdfUrlLayout : (S.pdfUrlOriginal || S.pdfUrlLayout);
+  if (pdfUrl) await loadPDF(pdfUrl, true);
+});
+
+$('zoom-in-btn').addEventListener('click', async () => {
+  S.zoomScale = Math.min(S.zoomScale + 0.25, 4); updatePgCtrl();
+  if (S.pdfDoc) await renderPage(S.currentPage);
+});
+$('zoom-out-btn').addEventListener('click', async () => {
+  S.zoomScale = Math.max(S.zoomScale - 0.25, 0.5); updatePgCtrl();
+  if (S.pdfDoc) await renderPage(S.currentPage);
+});
+
+/* ─────────────────────────────────────────────────────────────
+   14. HOVER SYNC & BBOX OVERLAY
+───────────────────────────────────────────────────────────── */
+function drawAllBboxes() {
+  // Clear only the "all" boxes, keep hot/sel
+  el.bboxOl.querySelectorAll('.bx:not(.hot):not(.sel)').forEach(e => e.remove());
+  if (!S.showAllBoxes) return;
+
+  const pageIdx = S.currentPage - 1;
+  const blocks = S.pageBlocks[pageIdx] || S.contentList.filter(b => b.page_idx === pageIdx);
+
+  blocks.forEach((b, i) => paintBbox(b, '', b.order != null ? b.order + 1 : i + 1));
+  el.bboxOl.classList.add('show-all');
+}
+
+el.bboxToggle.addEventListener('click', () => {
+  S.showAllBoxes = !S.showAllBoxes;
+  el.bboxToggle.style.background = S.showAllBoxes ? 'var(--accent-soft)' : '';
+  el.bboxToggle.style.color      = S.showAllBoxes ? 'var(--accent)' : '';
+  el.bboxToggle.textContent      = S.showAllBoxes ? '🔲 Hide All' : '🔲 Show All';
+  if (S.showAllBoxes) {
+    drawAllBboxes();
+  } else {
+    el.bboxOl.innerHTML = '';
+    el.bboxOl.classList.remove('show-all');
+  }
+});
+// Init button state for default on
+el.bboxToggle.style.background = 'var(--accent-soft)';
+el.bboxToggle.style.color      = 'var(--accent)';
+el.bboxToggle.textContent      = '🔲 Hide All';
+
+/* ─── CALIBRATION: Drag-to-align overlay ───────────────────── */
+const calibBtn   = $('btn-calibrate');
+const calibBar   = $('calib-bar');
+const calibXDisp = $('calib-x');
+const calibYDisp = $('calib-y');
+const calibReset = $('calib-reset');
+const calibDone  = $('calib-done');
+
+// Offset + scale state (persisted in localStorage)
+S.bboxOffsetX = parseFloat(localStorage.getItem('mineru_calib_x') || '0');
+S.bboxOffsetY = parseFloat(localStorage.getItem('mineru_calib_y') || '0');
+S.bboxScale   = parseFloat(localStorage.getItem('mineru_calib_sc') || '1');
+S.calibrating = false;
+
+function applyCalibOffset() {
+  el.bboxOl.style.transformOrigin = '0 0';
+  el.bboxOl.style.transform = `translate(${S.bboxOffsetX}px, ${S.bboxOffsetY}px) scale(${S.bboxScale})`;
+  calibXDisp.textContent = S.bboxOffsetX.toFixed(1);
+  calibYDisp.textContent = S.bboxOffsetY.toFixed(1);
+  $('calib-sc').textContent = S.bboxScale.toFixed(2);
+}
+// Apply stored offset on load
+applyCalibOffset();
+
+calibBtn.addEventListener('click', () => {
+  S.calibrating = !S.calibrating;
+  el.bboxOl.classList.toggle('calibrating', S.calibrating);
+  calibBar.classList.toggle('visible', S.calibrating);
+  calibBtn.style.background = S.calibrating ? 'rgba(251,191,36,.25)' : '';
+  calibBtn.style.color      = S.calibrating ? '#f59e0b' : '';
+  calibBtn.textContent      = S.calibrating ? '🔧 Dragging…' : '🔧 Calibrate';
+  if (S.calibrating) toast('🔧 Drag the overlay to align boxes. Applies to ALL pages.', 'info', 4000);
+});
+
+calibReset.addEventListener('click', () => {
+  S.bboxOffsetX = 0; S.bboxOffsetY = 0; S.bboxScale = 1;
+  localStorage.setItem('mineru_calib_x', '0');
+  localStorage.setItem('mineru_calib_y', '0');
+  localStorage.setItem('mineru_calib_sc', '1');
+  applyCalibOffset();
+  toast('↺ All calibration reset', 'info', 2000);
+});
+
+// Scale +/- buttons (0.02 step)
+$('sc-up').addEventListener('click', () => {
+  S.bboxScale = Math.min(S.bboxScale + 0.02, 2.0);
+  localStorage.setItem('mineru_calib_sc', String(S.bboxScale));
+  applyCalibOffset();
+});
+$('sc-down').addEventListener('click', () => {
+  S.bboxScale = Math.max(S.bboxScale - 0.02, 0.5);
+  localStorage.setItem('mineru_calib_sc', String(S.bboxScale));
+  applyCalibOffset();
+});
+
+calibDone.addEventListener('click', () => {
+  S.calibrating = false;
+  el.bboxOl.classList.remove('calibrating');
+  calibBar.classList.remove('visible');
+  calibBtn.style.background = '';
+  calibBtn.style.color      = '';
+  calibBtn.textContent      = '🔧 Calibrate';
+  localStorage.setItem('mineru_calib_x', String(S.bboxOffsetX));
+  localStorage.setItem('mineru_calib_y', String(S.bboxOffsetY));
+  localStorage.setItem('mineru_calib_sc', String(S.bboxScale));
+  toast('✓ Calibration saved (position + scale). Applies to all pages.', 'success', 3000);
+});
+
+// Drag handling on bbox overlay
+let _calDrag = false, _calStartX = 0, _calStartY = 0, _calOrigX = 0, _calOrigY = 0;
+
+el.bboxOl.addEventListener('mousedown', (e) => {
+  if (!S.calibrating) return;
+  _calDrag = true;
+  _calStartX = e.clientX; _calStartY = e.clientY;
+  _calOrigX  = S.bboxOffsetX; _calOrigY  = S.bboxOffsetY;
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!_calDrag) return;
+  S.bboxOffsetX = _calOrigX + (e.clientX - _calStartX);
+  S.bboxOffsetY = _calOrigY + (e.clientY - _calStartY);
+  applyCalibOffset();
+});
+
+document.addEventListener('mouseup', () => {
+  if (!_calDrag) return;
+  _calDrag = false;
+  localStorage.setItem('mineru_calib_x', String(S.bboxOffsetX));
+  localStorage.setItem('mineru_calib_y', String(S.bboxOffsetY));
+});
+
+// Touch support for calibration
+el.bboxOl.addEventListener('touchstart', (e) => {
+  if (!S.calibrating) return;
+  _calDrag = true;
+  const t = e.touches[0];
+  _calStartX = t.clientX; _calStartY = t.clientY;
+  _calOrigX  = S.bboxOffsetX; _calOrigY  = S.bboxOffsetY;
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchmove', (e) => {
+  if (!_calDrag) return;
+  const t = e.touches[0];
+  S.bboxOffsetX = _calOrigX + (t.clientX - _calStartX);
+  S.bboxOffsetY = _calOrigY + (t.clientY - _calStartY);
+  applyCalibOffset();
+});
+
+document.addEventListener('touchend', () => {
+  if (!_calDrag) return;
+  _calDrag = false;
+  localStorage.setItem('mineru_calib_x', String(S.bboxOffsetX));
+  localStorage.setItem('mineru_calib_y', String(S.bboxOffsetY));
+});
+
+async function onMdHover(idx) {
+  // Remove previous hover highlights
+  el.bboxOl.querySelectorAll('.bx.hot').forEach(e => e.remove());
+  const blockIndices = S.mdToBlocks[idx] || [];
+  if (blockIndices.length === 0) return;
+
+  // Find first block that has a valid page
+  const firstBlock = S.contentList[blockIndices[0]];
+  const targetPage = (firstBlock.page_idx ?? 0) + 1;
+
+  if (targetPage !== S.currentPage && S.pdfDoc) {
+    S.currentPage = Math.min(targetPage, S.totalPages);
+    updatePgCtrl();
+    await renderPage(S.currentPage);
+  }
+
+  // ONLY draw bboxes for blocks on the CURRENT page (prevents cross-page stacking)
+  const currentPageIdx = S.currentPage - 1;
+  blockIndices.forEach(bIdx => {
+    const b = S.contentList[bIdx];
+    if ((b.page_idx ?? 0) === currentPageIdx) {
+      paintBbox(b, 'hot', b.order != null ? b.order + 1 : bIdx + 1);
+    }
+  });
+}
+
+function paintBbox(block, cls = '', readingOrder = null) {
+  const bbox = block.bbox;
+  if (!bbox) return;
+  const [x1, y1, x2, y2] = bbox;
+  const W = el.canvas.width, H = el.canvas.height;
+
+  const { scaleX, scaleY } = getPdfScaleRatio();
+
+  const xs = (x1 / scaleX) * W;
+  const ys = (y1 / scaleY) * H;
+  const ws = ((x2 - x1) / scaleX) * W;
+  const hs = ((y2 - y1) / scaleY) * H;
+
+  const typeCss = getTypeCss(block.type);
+  const d = document.createElement('div');
+  d.className = 'bx ' + typeCss + (cls ? ' ' + cls : '');
+  d.style.left   = xs + 'px';
+  d.style.top    = ys + 'px';
+  d.style.width  = ws + 'px';
+  d.style.height = hs + 'px';
+
+  // Reading order badge
+  if (readingOrder != null) {
+    const badge = document.createElement('span');
+    badge.className = 'bbox-order';
+    badge.textContent = readingOrder;
+    d.appendChild(badge);
+  }
+
+  // Type label (only if box is big enough)
+  if (ws > 40 && hs > 18) {
+    const lbl = document.createElement('span');
+    lbl.className = 'bbox-label';
+    lbl.textContent = block.type;
+    d.appendChild(lbl);
+  }
+
+  // Tooltip on hover
+  const preview = (block.text || '').slice(0, 80);
+  if (preview) d.title = `[${block.type}] ${preview}`;
+
+  // Click to scroll to MD
+  d.onclick = () => {
+    const blockIndex = S.contentList.indexOf(block);
+    if (blockIndex !== -1) {
+      const mdIdx = S.blockToMd[blockIndex];
+      if (mdIdx !== undefined && mdIdx !== -1) {
+        const mdNode = el.mdOut.querySelector(`[data-b-idx="${mdIdx}"]`);
+        if (mdNode) {
+          mdNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          mdNode.classList.add('lit');
+          setTimeout(() => mdNode.classList.remove('lit'), 1800);
+          return;
+        }
+      }
+    }
+    // Fallback
+    if (block.text) toast(`📝 ${block.type}: ${block.text.slice(0, 120)}`, 'info', 4000);
+  };
+
+  el.bboxOl.appendChild(d);
+}
+
+function clearBbox() {
+  if (S.showAllBoxes) {
+    // Only remove hover/selection highlights, keep the "all" boxes
+    el.bboxOl.querySelectorAll('.bx.hot, .bx.sel').forEach(e => e.remove());
+  } else {
+    el.bboxOl.innerHTML = '';
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   15. JSON BLOCK EXPLORER
+───────────────────────────────────────────────────────────── */
+function renderJSONExplorer() {
+  const n = S.contentList.length;
+  el.jblkPill.textContent = `${n} block${n !== 1 ? 's' : ''}`;
+  rebuildList();
+}
+
+function rebuildList() {
+  const filter = S.activeFilter;
+  const q      = S.searchQuery.toLowerCase();
+
+  let rows = S.contentList.map((b, i) => ({ b, i }));
+
+  if (filter !== 'all') {
+    rows = rows.filter(({ b }) => {
+      const t = (b.type || '').toLowerCase();
+      if (filter === 'paragraph') return t === 'paragraph';
+      if (filter === 'image')    return t === 'image' || t === 'figure';
+      if (filter === 'title')    return t === 'title';
+      if (filter === 'table')    return t === 'table';
+      if (filter === 'chart')    return t === 'chart';
+      if (filter === 'list')     return t === 'list';
+      if (filter === 'meta')     return /^page_/.test(t);
+      return t === filter || t.startsWith(filter);
+    });
+  }
+
+  if (q) rows = rows.filter(({ b }) => JSON.stringify(b).toLowerCase().includes(q));
+
+  el.jcnt.textContent = `${rows.length} shown`;
+
+  if (rows.length === 0) {
+    el.jlist.innerHTML = `<div class="empty" style="height:100px">
+      <div class="empty-ico">🔍</div>
+      <div class="empty-ttl">No matches</div>
+      <div class="empty-sub">Adjust filter or search term</div>
+    </div>`;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  rows.forEach(({ b, i }) => {
+    const typeRaw = (b.type || 'unknown').toLowerCase();
+    const cls     = typeClass(typeRaw);
+    const pg      = (b.page_idx ?? 0) + 1;
+    const preview = (b.text || '').slice(0, 100);
+    const order   = b.order != null ? b.order + 1 : '';
+
+    const imgPath = b.img_path;
+    const imgUrl = imgPath && typeof imgPath === 'string' ? (S.imageMap[imgPath] || S.imageMap[imgPath.split('/').pop()]) : null;
+
+    const wrap = document.createElement('div');
+    wrap.className    = 'je';
+    wrap.dataset.gidx = i;
+    wrap.innerHTML = `
+      <div class="jeh">
+        <span class="bt ${cls}">${esc(typeRaw)}</span>
+        ${order ? `<span class="bt t-misc" style="font-size:9px;padding:1px 4px;">#${order}</span>` : ''}
+        <span class="jprev">${esc(preview)}${preview.length >= 100 ? '…' : ''}</span>
+        <span class="jpg">pg ${pg}</span>
+        <span class="jtog">▶</span>
+      </div>
+      <div class="jeb">
+        ${imgUrl ? `<img src="${imgUrl}" class="jimg-preview" alt="Extracted graphic">` : ''}
+        <pre><code class="language-json">${esc(JSON.stringify(b.raw || b, null, 2))}</code></pre>
+      </div>`;
+
+    wrap.addEventListener('click', () => selectEntry(wrap, i));
+    frag.appendChild(wrap);
+  });
+
+  el.jlist.innerHTML = '';
+  el.jlist.appendChild(frag);
+  el.jlist.querySelectorAll('code.language-json').forEach(c => hljs.highlightElement(c));
+}
+
+async function selectEntry(wrap, gidx) {
+  const body = wrap.querySelector('.jeb');
+  const open = body.classList.contains('open');
+
+  el.jlist.querySelectorAll('.je').forEach(e => {
+    e.querySelector('.jeb').classList.remove('open');
+    e.classList.remove('sel');
+  });
+
+  if (!open) {
+    body.classList.add('open');
+    wrap.classList.add('sel');
+
+    const block = S.contentList[gidx];
+    if (!block) return;
+
+    const tp = (block.page_idx ?? 0) + 1;
+    if (tp !== S.currentPage && S.pdfDoc) {
+      S.currentPage = Math.min(tp, S.totalPages);
+      updatePgCtrl();
+      await renderPage(S.currentPage);
+    }
+    // Remove previous sel highlights
+    el.bboxOl.querySelectorAll('.bx.sel').forEach(e => e.remove());
+    paintBbox(block, 'sel', block.order != null ? block.order + 1 : gidx + 1);
+
+    const mdBlock = el.mdOut.querySelector(`[data-b-idx="${gidx}"]`);
+    if (mdBlock) {
+      mdBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      mdBlock.classList.add('lit');
+      setTimeout(() => mdBlock.classList.remove('lit'), 1800);
+    }
+  }
+}
+
+function typeClass(t) {
+  if (/^(paragraph|text|para|span)/.test(t)) return 't-text';
+  if (/^title/.test(t))            return 't-title';
+  if (/^table/.test(t))            return 't-table';
+  if (/^(equation|formula|latex|math)/.test(t)) return 't-eq';
+  if (/^(image|figure|img)/.test(t)) return 't-img';
+  if (/^chart/.test(t))            return 't-chart';
+  if (/^list/.test(t))             return 't-list';
+  if (/^page_header/.test(t))      return 't-header';
+  if (/^page_footer/.test(t))      return 't-footer';
+  if (/^page_number/.test(t))      return 't-pgnum';
+  if (/^page_aside/.test(t))       return 't-aside';
+  return 't-misc';
+}
+
+// Filter tabs
+document.querySelectorAll('.ftab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.ftab').forEach(t => t.classList.remove('on'));
+    tab.classList.add('on');
+    S.activeFilter = tab.dataset.f;
+    rebuildList();
+  });
+});
+
+// Search
+let _sd;
+el.jsrch.addEventListener('input', () => {
+  clearTimeout(_sd);
+  _sd = setTimeout(() => { S.searchQuery = el.jsrch.value; rebuildList(); }, 250);
+});
+
+// JSON export button
+$('json-export-btn').addEventListener('click', () => {
+  if (!S.contentList.length) { toast('No data to export.', 'warn'); return; }
+  const blob = new Blob([JSON.stringify(S.contentList, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mineru_blocks.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('📥 JSON exported!', 'success', 2500);
+});
+
+/* ─────────────────────────────────────────────────────────────
+   16. KEYBOARD SHORTCUTS
+───────────────────────────────────────────────────────────── */
+document.addEventListener('keydown', async e => {
+  if ((e.target.tagName === 'INPUT') || e.target.tagName === 'SELECT') return;
+  if (e.key === 'ArrowLeft'  && !el.prevPg.disabled) { S.currentPage--; updatePgCtrl(); await renderPage(S.currentPage); }
+  if (e.key === 'ArrowRight' && !el.nextPg.disabled) { S.currentPage++; updatePgCtrl(); await renderPage(S.currentPage); }
+  if (e.key === '+' || e.key === '=') { S.zoomScale = Math.min(S.zoomScale+.25,4); updatePgCtrl(); if(S.pdfDoc) await renderPage(S.currentPage); }
+  if (e.key === '-')                  { S.zoomScale = Math.max(S.zoomScale-.25,.5); updatePgCtrl(); if(S.pdfDoc) await renderPage(S.currentPage); }
+  if (e.key === 't' || e.key === 'T') applyTheme(S.theme==='dark'?'light':'dark');
+});
+
+/* ─────────────────────────────────────────────────────────────
+   16b. TEST CONNECTION
+   Hits GET /health (a simple GET with no body).
+   A working server will reply 200. A CORS failure will throw
+   "Failed to fetch" — we detect that and auto-copy the FastAPI
+   CORSMiddleware snippet to the user's clipboard.
+───────────────────────────────────────────────────────────── */
+const CORS_FIX =
+  'from fastapi.middleware.cors import CORSMiddleware\n' +
+  'app.add_middleware(\n' +
+  '    CORSMiddleware,\n' +
+  '    allow_origins=["*"],\n' +
+  '    allow_credentials=True,\n' +
+  '    allow_methods=["*"],\n' +
+  '    allow_headers=["*"],\n' +
+  ')';
+
+async function testConnection() {
+  const endpoint = el.url.value.trim().replace(/\/$/, '');
+  if (!endpoint) { toast('Paste the local bridge or Ngrok URL first.', 'warn'); return; }
+
+  const btn = $('test-btn');
+  btn.textContent = '⏳ Testing…';
+  btn.disabled = true;
+  setStatus('busy', 'Testing…');
+
+  try {
+    const resp = await fetch(`${endpoint}/health`, {
+      method : 'GET',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
+    });
+    if (resp.ok) {
+      const txt = await resp.text();
+      setStatus('ready', 'Online ✓');
+      toast(`✅ Server online! /health → ${resp.status}  ${txt.slice(0,50)}`, 'success', 5000);
+    } else {
+      setStatus('err', `HTTP ${resp.status}`);
+      toast(`⚠️ Server returned ${resp.status} ${resp.statusText}`, 'warn', 5000);
+    }
+  } catch (err) {
+    // "Failed to fetch" on a simple GET = CORS headers missing on server
+    setStatus('err', 'CORS ✗');
+    navigator.clipboard?.writeText(CORS_FIX).catch(()=>{});
+    toast(
+      '🔒 CORS not configured on FastAPI server. ' +
+      'Fix code copied to clipboard — paste it in Colab ABOVE app = FastAPI() and restart the cell.',
+      'error', 18000
+    );
+  } finally {
+    btn.textContent = '🔌 Test';
+    btn.disabled = false;
+  }
+}
+$('test-btn').addEventListener('click', testConnection);
+
+/* ─────────────────────────────────────────────────────────────
+   17. BOOT
+───────────────────────────────────────────────────────────── */
+setStatus('', 'Ready');
+
+// Default local bridge. You can still paste a Colab/ngrok URL into the endpoint box.
+const LIVE_URL = 'http://127.0.0.1:8000';
+const _stored  = localStorage.getItem('mineru_endpoint') || '';
+if (LIVE_URL && _stored !== LIVE_URL) {
+  // New tunnel detected — override whatever was cached
+  el.url.value = LIVE_URL;
+  localStorage.setItem('mineru_endpoint', LIVE_URL);
+} else if (!el.url.value && LIVE_URL) {
+  el.url.value = LIVE_URL;
+}
+
+console.log('%c⚡ MinerU Studio — ready', 'color:#a5b4fc;font-size:15px;font-weight:800;');
+console.log('%cEndpoint: local MinerU bridge by default', 'color:#10b981;font-size:12px;');
+console.log('%cKeyboard: ◀ ▶ page nav | +/- zoom | T theme', 'color:#8fa3c0;font-size:12px;');
+</script>
+</body>
+</html>

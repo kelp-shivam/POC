@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+requests
+streamlit
+pillow
+pymupdf
+imagehash
+python-dotenv
+openai
