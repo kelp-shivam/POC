@@ -17,22 +17,24 @@ services:
         sync: false
       - key: api_key_4
         sync: false
-      - key: LLM_PROVIDER
-        value: kimi
-      # To switch to GPT-4o-mini, set LLM_PROVIDER=openai and OPENAI_API_KEY
+      # Azure OpenAI Foundry (GPT-4o mini - default)
+      - key: AZURE_OPENAI_API_KEY
+        sync: false
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false
+      - key: AZURE_OPENAI_DEPLOYMENT
+        value: gpt-4o-mini
+      - key: AZURE_OPENAI_API_VERSION
+        value: "2024-02-15"
+      # To use OpenAI direct:
       # - key: LLM_PROVIDER
       #   value: openai
       # - key: OPENAI_API_KEY
       #   sync: false
-      # To use Azure Foundry:
+      # To use Kimi HPC-AI:
       # - key: LLM_PROVIDER
-      #   value: azure
-      # - key: AZURE_OPENAI_API_KEY
-      #   sync: false
-      # - key: AZURE_OPENAI_ENDPOINT
-      #   sync: false
-      # - key: AZURE_OPENAI_DEPLOYMENT
-      #   value: gpt-4o-mini
+      #   value: kimi
+      # (needs api_key_1, api_key_2, etc.)
 
   # Frontend (Streamlit)
   - type: web

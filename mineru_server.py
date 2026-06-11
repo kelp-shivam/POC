@@ -130,19 +130,32 @@ _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  LLM Provider Config  (Kimi HPC-AI default, GPT-4o-mini via env override)
+#  LLM Provider Config  (GPT-4o-mini via Azure Foundry default)
 #
-#  To switch to GPT-4o-mini set env vars:
+#  To use OpenAI directly set:
 #    LLM_PROVIDER=openai
 #    OPENAI_API_KEY=sk-...
 #
-#  To use Azure OpenAI Foundry set:
-#    LLM_PROVIDER=azure
+#  To use Kimi HPC-AI set:
+#    LLM_PROVIDER=kimi
+#    api_key_1, api_key_2, api_key_3, api_key_4 env vars
+#
+#  Azure OpenAI Foundry (current default):
+#    LLM_PROVIDER=azure (or auto-detect from env vars)
 #    AZURE_OPENAI_API_KEY=...
 #    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 #    AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
 # ─────────────────────────────────────────────────────────────────────────────
-_LLM_PROVIDER   = os.getenv("LLM_PROVIDER", "kimi").lower()  # kimi | openai | azure
+_AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
+_AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+_AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+_AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
+
+# Auto-detect Azure if credentials present, else use explicit env var
+if _AZURE_API_KEY and _AZURE_ENDPOINT:
+    _LLM_PROVIDER = "azure"
+else:
+    _LLM_PROVIDER = os.getenv("LLM_PROVIDER", "azure").lower()  # azure | openai | kimi
 
 # Kimi (default)
 _KIMI_BASE_URL  = "https://api.hpc-ai.com/inference/v1"
@@ -153,12 +166,6 @@ _KIMI_WINDOW     = 60   # seconds
 # OpenAI / GPT-4o-mini
 _OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# Azure OpenAI Foundry
-_AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
-_AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-_AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-_AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
 
 class KimiKeyRotator:
     """Thread-safe round-robin dispatcher with per-key token-bucket rate limiting."""

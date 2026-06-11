@@ -453,20 +453,33 @@ def render_sidebar() -> None:
         """, unsafe_allow_html=True)
 
         # ── Pricing Info ──
-        with st.expander("💰 Pricing & Cost Estimates", expanded=False):
-            st.markdown("""
-**MinerU + Kimi K2.5** (Current)
-- MinerU: **$0.05** per document
-- Kimi: **$0.30**/1M input tokens, **$1.50**/1M output
-- Avg total: **~$0.08–$0.15** per page
+        with st.expander("💰 Pricing Comparison (3 Approaches)", expanded=True):
+            pcol1, pcol2, pcol3 = st.columns(3)
 
-**Alternatives:**
-- **LlamaParse**: **$0.0125**/page (text extraction only, no enrichment)
-- **MinerU + GPT-4o-mini**: $0.05 + $0.15/1M input, $0.60/1M output (~$0.06–$0.10/page)
+            with pcol1:
+                st.markdown("""**LlamaParse**
+- Extraction only
+- **$0.0125**/page
+- Fastest
+- No enrichment""")
 
-*All processing (extraction + enrichment + API calls) happens at backend.*
-*See full cost breakdown in "Summary & Cost" tab after processing.*
-            """)
+            with pcol2:
+                st.markdown("""**MinerU + GPT-4o mini**
+- Basic enrichment
+- **$0.05** doc
+- **$0.15**/1M in
+- **$0.60**/1M out
+- ~$0.06–$0.10/page""")
+
+            with pcol3:
+                st.markdown("""**MinerU + Kimi K2.5** ⭐
+- Full enrichment
+- **$0.05** doc
+- **$0.30**/1M in
+- **$1.50**/1M out
+- ~$0.08–$0.15/page""")
+
+            st.info("✓ All processing happens at backend (Render). See 'Summary & Cost' tab for live calculation.")
 
         # ── Endpoint ──
         st.markdown('<div class="sidebar-title">🔗 Bridge Endpoint</div>', unsafe_allow_html=True)
@@ -505,9 +518,16 @@ def render_sidebar() -> None:
             enable_caption = st.checkbox("✨ Captions", True)
             drop_icons     = st.checkbox("🚫 Drop Icons", True)
 
-        language    = st.text_input("Language", "en")
-        page_ranges = st.text_input("Page ranges", placeholder="e.g. 1-3,5")
-        is_ocr      = st.checkbox("Force OCR", False)
+        language = st.text_input("Language", "en")
+        is_ocr   = st.checkbox("Force OCR", False)
+
+        # Page range selector
+        st.markdown('<div class="sidebar-title">📄 Page Range</div>', unsafe_allow_html=True)
+        page_mode = st.radio("Process:", ["First 20 pages", "Custom range"], index=0, horizontal=True)
+        if page_mode == "First 20 pages":
+            page_ranges = "1-20"
+        else:
+            page_ranges = st.text_input("Custom range", placeholder="e.g. 1-50 or 1-5,10-15", value="")
 
         if st.button("⚡ Submit to Pipeline", type="primary", disabled=uploaded is None):
             options = {
@@ -818,30 +838,74 @@ def render_enrichment_tab() -> None:
 
         st.divider()
 
-        # Cost comparison with alternatives
-        with st.expander("📊 Cost Comparison with Alternatives"):
+        # Cost comparison with all 3 approaches
+        with st.expander("📊 Cost Comparison: All Approaches", expanded=True):
+            st.markdown("**Document processed: {0} pages | Input: {1:,} tokens | Output: {2:,} tokens**".format(
+                page_count, v.get('input_tokens', 0), v.get('output_tokens', 0)
+            ))
+
             comp_cols = st.columns(3)
 
-            # Current stack: MinerU + Kimi
-            with comp_cols[0]:
-                st.markdown("**MinerU + Kimi K2.5**")
-                st.markdown(f"- Total: **${cost_total:.4f}**\n- Per page: **${cost_total/page_count:.4f}**\n- Input tokens: $0.30/1M\n- Output tokens: $1.50/1M")
-
-            # LlamaParse alternative
-            llamaparse_cost_page = 0.0125  # per-page rate
+            # Approach 1: LlamaParse (text only)
+            llamaparse_cost_page = 0.0125
             llamaparse_total = llamaparse_cost_page * page_count
-            with comp_cols[1]:
-                st.markdown("**LlamaParse Only**")
-                st.markdown(f"- Total: **${llamaparse_total:.4f}**\n- Per page: **${llamaparse_cost_page:.4f}**\n- Simple extraction\n- No enrichment")
+            with comp_cols[0]:
+                st.markdown("### 1️⃣ LlamaParse")
+                st.markdown(f"""
+**Cost:**
+- Per page: **${llamaparse_cost_page:.4f}**
+- Total: **${llamaparse_total:.4f}**
 
-            # MinerU + GPT-4o-mini (lighter LLM)
+**What you get:**
+- ✓ Text extraction
+- ✗ No tables
+- ✗ No visual analysis
+- ✗ No enrichment
+""")
+
+            # Approach 2: MinerU + GPT-4o-mini (Azure)
             gpt_cost = 0.15 / 1e6 * v.get('input_tokens', 0) + 0.60 / 1e6 * v.get('output_tokens', 0)
             gpt_total = 0.05 + gpt_cost
-            with comp_cols[2]:
-                st.markdown("**MinerU + GPT-4o-mini**")
-                st.markdown(f"- Total: **${gpt_total:.4f}**\n- Per page: **${gpt_total/page_count:.4f}**\n- Input: $0.15/1M\n- Output: $0.60/1M")
+            with comp_cols[1]:
+                st.markdown("### 2️⃣ MinerU + GPT-4o-mini")
+                st.markdown(f"""
+**Cost:**
+- MinerU: $0.05
+- GPT LLM: **${gpt_cost:.4f}**
+- **Total: ${gpt_total:.4f}**
+- Per page: **${gpt_total/page_count:.4f}**
 
-            st.info(f"📍 **Savings**: LlamaParse saves ${llamaparse_total - cost_total:.4f} but only extracts text. MinerU+Kimi provides full enrichment (tables, visuals).")
+**What you get:**
+- ✓ Tables + visuals
+- ✓ Basic enrichment
+- ✓ Cheaper LLM
+""")
+
+            # Approach 3: MinerU + Kimi K2.5 (CURRENT)
+            with comp_cols[2]:
+                st.markdown("### 3️⃣ MinerU + Kimi K2.5 ⭐")
+                st.markdown(f"""
+**Cost:**
+- MinerU: $0.05
+- Kimi LLM: **${cost_llm:.4f}**
+- **Total: ${cost_total:.4f}**
+- Per page: **${cost_total/page_count:.4f}**
+
+**What you get:**
+- ✓ Tables + visuals
+- ✓ Full enrichment
+- ✓ Best quality
+""")
+
+            # Summary
+            savings_vs_kimi = cost_total - llamaparse_total
+            savings_vs_gpt = cost_total - gpt_total
+            st.success(f"""
+**Summary:**
+- **LlamaParse** is **${savings_vs_kimi:.4f}** cheaper but text-only (no enrichment)
+- **GPT-4o-mini** is **${savings_vs_gpt:.4f}** cheaper with basic enrichment
+- **Kimi K2.5** (current) provides best-in-class enrichment
+            """)
 
         st.divider()
 
