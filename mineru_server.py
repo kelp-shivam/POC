@@ -189,6 +189,80 @@ _AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 _AZURE_OPENAI_AVAILABLE = bool(_AZURE_ENDPOINT and (_AZURE_API_KEY or (_AZURE_TENANT_ID and _AZURE_CLIENT_ID and _AZURE_CLIENT_SECRET)))
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Markdown Utilities
+# ─────────────────────────────────────────────────────────────────────────────
+def _html_table_to_markdown(html_table: str) -> str:
+    """Convert HTML table to markdown format."""
+    from html.parser import HTMLParser
+
+    class TableParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.rows = []
+            self.current_row = []
+            self.in_cell = False
+            self.cell_content = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("tr",):
+                self.current_row = []
+            elif tag in ("td", "th"):
+                self.in_cell = True
+                self.cell_content = []
+
+        def handle_endtag(self, tag):
+            if tag in ("td", "th"):
+                self.in_cell = False
+                cell_text = "".join(self.cell_content).strip()
+                self.current_row.append(cell_text)
+            elif tag == "tr":
+                if self.current_row:
+                    self.rows.append(self.current_row)
+
+        def handle_data(self, data):
+            if self.in_cell:
+                self.cell_content.append(data.strip())
+
+    try:
+        parser = TableParser()
+        parser.feed(html_table)
+
+        if not parser.rows:
+            return html_table
+
+        # Build markdown table
+        lines = []
+        for i, row in enumerate(parser.rows):
+            if not row:
+                continue
+            line = "| " + " | ".join(str(cell) for cell in row) + " |"
+            lines.append(line)
+
+            # Add separator after header (first row)
+            if i == 0:
+                sep = "| " + " | ".join(["---"] * len(row)) + " |"
+                lines.append(sep)
+
+        return "\n".join(lines) if lines else html_table
+    except Exception:
+        return html_table
+
+
+def _convert_html_tables_in_markdown(markdown_text: str) -> str:
+    """Find and convert all HTML tables in markdown to markdown format."""
+    import re
+
+    # Find all <table>...</table> blocks
+    table_pattern = r'<table[^>]*>.*?</table>'
+
+    def replace_table(match):
+        html_table = match.group(0)
+        return _html_table_to_markdown(html_table)
+
+    return re.sub(table_pattern, replace_table, markdown_text, flags=re.DOTALL | re.IGNORECASE)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Extraction Methods
 # ─────────────────────────────────────────────────────────────────────────────
 async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = None) -> dict[str, Any] | None:
@@ -1953,6 +2027,8 @@ async def extract_mineru_azure(
 
         md_file = next(extract_dir.rglob("full.md"), None)
         content = md_file.read_text(encoding="utf-8", errors="ignore") if md_file else ""
+        # Convert HTML tables to markdown tables
+        content = _convert_html_tables_in_markdown(content)
         page_count = len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
 
         return {
@@ -2000,6 +2076,8 @@ async def extract_mineru_raw(
 
         md_file = next(extract_dir.rglob("full.md"), None)
         content = md_file.read_text(encoding="utf-8", errors="ignore") if md_file else ""
+        # Convert HTML tables to markdown tables
+        content = _convert_html_tables_in_markdown(content)
         page_count = len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
 
         return {
