@@ -29,6 +29,4 @@ services:
     startCommand: streamlit run streamlit_cloud_app.py --server.port=$PORT --server.address=0.0.0.0
     envVars:
       - key: DOCEXTRACT_BACKEND_URL
-        fromService:
-          name: docextract-backend
-          property: url
+        sync: false
