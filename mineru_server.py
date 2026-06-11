@@ -28,12 +28,23 @@ Required (3 extraction methods):
   AZURE_DI_KEY
 
 Optional (enrichment + advanced):
-  AZURE_OPENAI_API_KEY (enables /extract/mineru-azure)
-  AZURE_OPENAI_ENDPOINT
-  AZURE_OPENAI_DEPLOYMENT (gpt-4o-mini)
-  AZURE_OPENAI_API_VERSION (2024-02-15)
-  AZURE_DI_PROJECT (custom model)
-  AZURE_DI_DEPLOYMENT (custom model)
+
+  Azure OpenAI auth (choose ONE):
+    Option A (API Key):
+      AZURE_OPENAI_API_KEY
+    Option B (Service Principal):
+      AZURE_TENANT_ID
+      AZURE_CLIENT_ID
+      AZURE_CLIENT_SECRET
+
+  Azure OpenAI config:
+    AZURE_OPENAI_ENDPOINT
+    AZURE_OPENAI_DEPLOYMENT (gpt-4o-mini)
+    AZURE_OPENAI_API_VERSION (2024-02-15)
+
+  Advanced:
+    AZURE_DI_PROJECT (custom model)
+    AZURE_DI_DEPLOYMENT (custom model)
 """
 
 from __future__ import annotations
@@ -165,12 +176,17 @@ if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
     raise RuntimeError("Missing Azure DI credentials: AZURE_DI_ENDPOINT and AZURE_DI_KEY required")
 
 # 3. Azure OpenAI Foundry (enrichment - optional)
-_AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
 _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 _AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
 _AZURE_MODEL        = "gpt-4o-mini"
-_AZURE_OPENAI_AVAILABLE = bool(_AZURE_API_KEY and _AZURE_ENDPOINT)
+
+# Auth: API key OR service principal
+_AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
+_AZURE_TENANT_ID    = os.getenv("AZURE_TENANT_ID", "")
+_AZURE_CLIENT_ID    = os.getenv("AZURE_CLIENT_ID", "")
+_AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
+_AZURE_OPENAI_AVAILABLE = bool(_AZURE_ENDPOINT and (_AZURE_API_KEY or (_AZURE_TENANT_ID and _AZURE_CLIENT_ID and _AZURE_CLIENT_SECRET)))
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Extraction Methods
@@ -253,14 +269,33 @@ _LLM_SYSTEM = (
 
 
 def _get_llm_client() -> tuple[Any, str]:
-    """Return Azure OpenAI Foundry client (GPT-4o-mini only)."""
+    """Return Azure OpenAI Foundry client (GPT-4o-mini). Auth: API key or service principal."""
     if _openai_sdk is None:
         raise RuntimeError("openai SDK not installed")
-    client = _openai_sdk.AzureOpenAI(
-        api_key=_AZURE_API_KEY,
-        azure_endpoint=_AZURE_ENDPOINT,
-        api_version=_AZURE_API_VERSION,
-    )
+
+    # Auth option 1: API key
+    if _AZURE_API_KEY:
+        client = _openai_sdk.AzureOpenAI(
+            api_key=_AZURE_API_KEY,
+            azure_endpoint=_AZURE_ENDPOINT,
+            api_version=_AZURE_API_VERSION,
+        )
+    # Auth option 2: Service principal
+    elif _AZURE_TENANT_ID and _AZURE_CLIENT_ID and _AZURE_CLIENT_SECRET:
+        from azure.identity import ClientSecretCredential
+        credential = ClientSecretCredential(
+            tenant_id=_AZURE_TENANT_ID,
+            client_id=_AZURE_CLIENT_ID,
+            client_secret=_AZURE_CLIENT_SECRET,
+        )
+        client = _openai_sdk.AzureOpenAI(
+            azure_endpoint=_AZURE_ENDPOINT,
+            azure_ad_token_provider=credential.get_token,
+            api_version=_AZURE_API_VERSION,
+        )
+    else:
+        raise RuntimeError("No Azure OpenAI auth: need API_KEY or (TENANT_ID + CLIENT_ID + CLIENT_SECRET)")
+
     return client, _AZURE_DEPLOYMENT
 
 
