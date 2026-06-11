@@ -191,32 +191,54 @@ _AZURE_OPENAI_AVAILABLE = bool(_AZURE_ENDPOINT and (_AZURE_API_KEY or (_AZURE_TE
 # ─────────────────────────────────────────────────────────────────────────────
 #  Extraction Methods
 # ─────────────────────────────────────────────────────────────────────────────
-def extract_with_llamaparse(pdf_bytes: bytes) -> dict[str, Any] | None:
-    """Extract PDF with LlamaParse API."""
+def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = None) -> dict[str, Any] | None:
+    """Extract PDF with LlamaIndex Cloud API (agentic tier). Polls job and saves result."""
     try:
+        import base64
         import requests
-        url = "https://api.llamaparse.com/api/parsing/job"
-        headers = {"Authorization": f"Bearer {_LLAMAPARSE_API_KEY}"}
-        files = {"file": ("document.pdf", pdf_bytes, "application/pdf")}
-        data = {"output_format": "markdown"}
-        resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-        if resp.status_code != 200:
+
+        # Step 1: Submit file to LlamaIndex Cloud
+        url = "https://api.cloud.llamaindex.ai/api/v2/parse"
+        headers = {
+            "Authorization": f"Bearer {_LLAMAPARSE_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        # Encode PDF as base64
+        pdf_base64 = base64.b64encode(pdf_bytes).decode()
+        payload = {
+            "file": pdf_base64,
+            "file_ext": "pdf",
+            "tier": "agentic",  # Use agentic (not fast)
+            "output_format": "markdown",
+            "version": "latest",
+        }
+
+        submit_resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        if submit_resp.status_code != 200:
             return None
-        job_id = resp.json().get("id")
+
+        job_id = submit_resp.json().get("id")
         if not job_id:
             return None
-        # Poll for result
-        for _ in range(60):
-            result_resp = requests.get(
-                f"https://api.llamaparse.com/api/parsing/job/{job_id}/result",
-                headers=headers,
-                timeout=10,
-            )
-            if result_resp.status_code == 200:
-                return result_resp.json()
-            time.sleep(1)
+
+        # Step 2: Poll for result (max 300s = 5min for agentic)
+        poll_url = f"https://api.cloud.llamaindex.ai/api/v2/parse/{job_id}"
+        for attempt in range(60):
+            poll_resp = requests.get(poll_url, headers=headers, timeout=10)
+            if poll_resp.status_code == 200:
+                result = poll_resp.json()
+                if result.get("status") == "SUCCESS":
+                    # Save markdown if output_dir provided
+                    if output_dir:
+                        output_dir.mkdir(parents=True, exist_ok=True)
+                        md_file = output_dir / "llamaparse_output.md"
+                        md_file.write_text(result.get("markdown", ""), encoding="utf-8")
+                    return result
+            time.sleep(5)  # Poll every 5s for agentic
+
         return None
-    except Exception:
+    except Exception as e:
         return None
 
 
@@ -1762,8 +1784,11 @@ def list_models() -> dict[str, Any]:
 
 
 @app.post("/compare")
-async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Extract same PDF with all 4 methods for comparison."""
+async def compare_extraction(
+    file: UploadFile = File(...),
+    page_ranges: str = Form("1-20"),
+) -> dict[str, Any]:
+    """Extract with all 4 methods. page_ranges: '1-20' or '1-50'"""
     pdf_bytes = await file.read()
     results = {
         "llamaparse": None,
@@ -1810,7 +1835,7 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
                 enable_table=True,
                 language="en",
                 is_ocr=True,
-                page_ranges=None,
+                page_ranges=page_ranges if page_ranges else None,
             )
             zip_url = poll_mineru_batch(batch_id, {})
             raw_zip = task_dir / "mineru.zip"
@@ -1849,24 +1874,39 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
 
 
 @app.post("/extract/llamaparse")
-async def extract_llamaparse(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Extract PDF with LlamaParse only."""
+async def extract_llamaparse(
+    file: UploadFile = File(...),
+    page_ranges: str = Form("1-20"),
+) -> dict[str, Any]:
+    """Extract PDF with LlamaIndex Cloud API (agentic tier). Saves output to /tmp."""
     pdf_bytes = await file.read()
-    result = extract_with_llamaparse(pdf_bytes)
+
+    # Save to temp dir
+    task_dir = Path(tempfile.gettempdir()) / "llamaparse_results" / str(uuid.uuid4())
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    result = extract_with_llamaparse(pdf_bytes, output_dir=task_dir)
     if result:
+        markdown = result.get("markdown", "")
+        pages = len(markdown.split("\n# Page")) if markdown else 0
         return {
             "status": "success",
-            "method": "LlamaParse",
-            "markdown": result.get("markdown", ""),
-            "pages": len(result.get("markdown", "").split("---")) if result.get("markdown") else 0,
-            "cost": 0.0125 * (len(result.get("markdown", "").split("---")) if result.get("markdown") else 0),
+            "method": "LlamaIndex Cloud (agentic)",
+            "markdown": markdown,
+            "pages": pages,
+            "page_ranges": page_ranges,
+            "cost": 0.0125 * pages,
+            "output_dir": str(task_dir),
         }
-    return {"status": "error", "message": "LlamaParse extraction failed"}
+    return {"status": "error", "message": "LlamaIndex Cloud extraction failed"}
 
 
 @app.post("/extract/azure-di")
-async def extract_azure_di(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Extract PDF with Azure Document Intelligence only."""
+async def extract_azure_di(
+    file: UploadFile = File(...),
+    page_ranges: str = Form("1-20"),
+) -> dict[str, Any]:
+    """Extract PDF with Azure DI. page_ranges: '1-20' or '1-50' or '1-5,10-15'"""
     pdf_bytes = await file.read()
     result = extract_with_azure_di(pdf_bytes)
     if result:
@@ -1875,14 +1915,18 @@ async def extract_azure_di(file: UploadFile = File(...)) -> dict[str, Any]:
             "method": "Azure Document Intelligence",
             "markdown": result.get("markdown", ""),
             "pages": result.get("pages", 0),
+            "page_ranges": page_ranges,
             "cost": "Pay-per-page",
         }
     return {"status": "error", "message": "Azure DI extraction failed"}
 
 
 @app.post("/extract/mineru-azure")
-async def extract_mineru_azure(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Extract PDF with MinerU + Azure OpenAI enrichment."""
+async def extract_mineru_azure(
+    file: UploadFile = File(...),
+    page_ranges: str = Form("1-20"),
+) -> dict[str, Any]:
+    """Extract PDF with MinerU + Azure OpenAI. page_ranges: '1-20' or '1-50'"""
     if not _AZURE_OPENAI_AVAILABLE:
         return {"status": "error", "message": "Azure OpenAI not configured. Set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"}
     pdf_bytes = await file.read()
@@ -1900,7 +1944,7 @@ async def extract_mineru_azure(file: UploadFile = File(...)) -> dict[str, Any]:
             enable_table=True,
             language="en",
             is_ocr=True,
-            page_ranges=None,
+            page_ranges=page_ranges if page_ranges else None,
         )
         zip_url = poll_mineru_batch(batch_id, {})
         raw_zip = task_dir / "mineru.zip"
@@ -1927,8 +1971,11 @@ async def extract_mineru_azure(file: UploadFile = File(...)) -> dict[str, Any]:
 
 
 @app.post("/extract/mineru-raw")
-async def extract_mineru_raw(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Extract PDF with MinerU only (no enrichment)."""
+async def extract_mineru_raw(
+    file: UploadFile = File(...),
+    page_ranges: str = Form("1-20"),
+) -> dict[str, Any]:
+    """Extract PDF with MinerU only (no enrichment). page_ranges: '1-20' or '1-50'"""
     pdf_bytes = await file.read()
     task_id = str(uuid.uuid4())
     task_dir = Path(tempfile.gettempdir()) / "extract_mineru_raw" / task_id
@@ -1944,7 +1991,7 @@ async def extract_mineru_raw(file: UploadFile = File(...)) -> dict[str, Any]:
             enable_table=True,
             language="en",
             is_ocr=True,
-            page_ranges=None,
+            page_ranges=page_ranges if page_ranges else None,
         )
         zip_url = poll_mineru_batch(batch_id, {})
         raw_zip = task_dir / "mineru.zip"
