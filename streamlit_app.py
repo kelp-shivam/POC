@@ -477,6 +477,7 @@ def render_sidebar() -> None:
         with col1:
             enable_formula = st.checkbox("∑ Formula", True)
             enable_table   = st.checkbox("⊞ Tables", True)
+            enable_enrichment = st.checkbox("🤖 Enrich (Vision LLM)", True, help="Enable Kimi vision enrichment. Disabling speeds up processing significantly.")
         with col2:
             enable_caption = st.checkbox("✨ Captions", True)
             drop_icons     = st.checkbox("🚫 Drop Icons", True)
@@ -495,6 +496,7 @@ def render_sidebar() -> None:
                 "is_ocr":               str(is_ocr).lower(),
                 "enable_image_caption": str(enable_caption).lower(),
                 "drop_small_images":    str(drop_icons).lower(),
+                "enable_enrichment":    str(enable_enrichment).lower(),
                 "return_content_list":  "true",
                 "return_md":            "true",
                 "response_format_zip":  "true",
@@ -505,11 +507,18 @@ def render_sidebar() -> None:
                     task_id = submit_to_bridge(uploaded.getvalue(), uploaded.name, options)
                 st.session_state.task_id = task_id
                 st.session_state.status  = {"status": "queued", "task_id": task_id}
+
+                # Display task ID prominently
                 st.success(f"✅ Task submitted: `{task_id}`")
+                st.info(f"📋 Task ID copied. Use in **Poll/Resume** section to check status.", icon="ℹ️")
             except Exception as exc:
                 st.error(f"Submit failed: {exc}")
 
         st.markdown('<hr style="border:none;border-top:1px solid rgba(80,100,200,0.10);margin:10px 0;">', unsafe_allow_html=True)
+
+        # ── Current Task ID ──
+        if st.session_state.task_id:
+            st.markdown(f'<div style="background: rgba(99,102,241,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid #6366f1; margin-bottom: 16px;"><strong>📋 Current Task:</strong><br><code>{st.session_state.task_id}</code></div>', unsafe_allow_html=True)
 
         # ── Poll / Resume ──
         st.markdown('<div class="sidebar-title">🔄 Poll / Resume</div>', unsafe_allow_html=True)
@@ -517,7 +526,7 @@ def render_sidebar() -> None:
             "Task ID", st.session_state.task_id, label_visibility="collapsed",
             placeholder="Paste task ID…"
         )
-        if task_id_input:
+        if task_id_input and task_id_input != st.session_state.task_id:
             st.session_state.task_id = task_id_input
 
         col_poll, col_auto = st.columns([1, 1])
@@ -751,8 +760,49 @@ def render_enrichment_tab() -> None:
     """Display enrichment.md + structured table corrections + visual summaries."""
     blocks = st.session_state.blocks
     enrich_md = st.session_state.enrichment_md
+    status = st.session_state.status
 
-    tab1, tab2, tab3 = st.tabs(["📋 Enrichment Report", "📊 Table Corrections", "🖼 Visual Summaries"])
+    tab0, tab1, tab2, tab3 = st.tabs(["⏱ Summary & Cost", "📋 Enrichment Report", "📊 Table Corrections", "🖼 Visual Summaries"])
+
+    with tab0:
+        # Timing & Cost Summary
+        t = status.get('timings', {})
+        v = status.get('visual_stats', {})
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("⏱️ Timing Breakdown")
+            st.metric("Submit & MinerU", f"{(t.get('submit_ms', 0) + t.get('mineru_ms', 0))/1000:.1f}s", help="Queue wait + GPU extraction")
+            st.metric("Download", f"{t.get('download_ms', 0)/1000:.1f}s")
+            st.metric("Kimi Enrichment", f"{t.get('enrich_ms', 0)/1000:.1f}s", help="LLM table + visual analysis")
+            st.metric("Total Time", f"{t.get('total_ms', 0)/1000:.1f}s", delta=f"{t.get('total_ms', 0)/1000/60:.2f}m")
+
+        with col2:
+            st.subheader("💰 Cost Breakdown")
+            cost_in = v.get('input_tokens', 0) * 0.30 / 1e6
+            cost_out = v.get('output_tokens', 0) * 1.50 / 1e6
+            cost_llm = cost_in + cost_out
+            cost_mineru = 0.05
+            cost_total = cost_mineru + cost_llm
+
+            st.metric("MinerU", f"${cost_mineru:.4f}")
+            st.metric("Kimi LLM", f"${cost_llm:.4f}", help=f"{v.get('input_tokens', 0):,} in + {v.get('output_tokens', 0):,} out")
+            st.metric("Total Cost", f"${cost_total:.4f}")
+            st.metric("Per Page", f"${cost_total / max(status.get('mineru_progress', {}).get('pages', 1), 1):.4f}")
+
+        st.divider()
+
+        st.subheader("📊 Document Stats")
+        doc_cols = st.columns(4)
+        with doc_cols[0]:
+            st.metric("Pages", status.get('mineru_progress', {}).get('pages', 'N/A'))
+        with doc_cols[1]:
+            st.metric("Tables", status.get('tables_enriched', 0))
+        with doc_cols[2]:
+            st.metric("Visuals", f"{v.get('successful', 0)}/{v.get('llm_sent', 0)}")
+        with doc_cols[3]:
+            st.metric("LLM Calls", v.get('llm_calls', 0))
 
     with tab1:
         if enrich_md:

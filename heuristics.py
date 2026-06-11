@@ -91,6 +91,97 @@ def parse_number(value: str) -> float | None:
         return None
 
 
+def check_number_format_consistency(text: str, block_index: int, page: int | None) -> list[CheckIssue]:
+    """Detect mixed decimal/thousand separators (Asian vs European): 1,234.56 vs 1.234,56"""
+    issues: list[CheckIssue] = []
+
+    # Find all number patterns
+    european_decimal = re.findall(r"\d{1,3}\.\d{3}[.,]\d{2}", text)  # 1.234,56
+    us_decimal = re.findall(r"\d{1,3},\d{3}\.\d{2}", text)  # 1,234.56
+
+    if european_decimal and us_decimal:
+        issues.append(CheckIssue(
+            "warning", "decimal_format_mixed",
+            f"Mixed number formats detected (US 1,234.56 AND European 1.234,56) — may indicate OCR errors.",
+            block_index, page, "text"
+        ))
+    return issues
+
+
+def check_date_format_consistency(text: str, block_index: int, page: int | None) -> list[CheckIssue]:
+    """Detect mixed date formats: MM/DD/YY vs DD/MM/YY"""
+    issues: list[CheckIssue] = []
+
+    # MM/DD/YY pattern (month first, day > 12 impossible)
+    us_dates = re.findall(r"\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])[/-](\d{2,4})\b", text)
+    # DD/MM/YY pattern (day first, month > 12 impossible)
+    eu_dates = re.findall(r"\b(0?[1-9]|[12]\d|3[01])[/-](0?[1-9]|1[0-2])[/-](\d{2,4})\b", text)
+
+    if us_dates and eu_dates and len(us_dates) > 1 and len(eu_dates) > 1:
+        issues.append(CheckIssue(
+            "warning", "date_format_mixed",
+            f"Mixed date formats detected (MM/DD vs DD/MM) — ambiguous which is correct.",
+            block_index, page, "text"
+        ))
+    return issues
+
+
+def check_currency_consistency(text: str, block_index: int, page: int | None) -> list[CheckIssue]:
+    """Detect multiple currency symbols in same block (indication of copy-paste errors)"""
+    issues: list[CheckIssue] = []
+
+    currencies = re.findall(r"[$€£¥₹]", text)
+    if len(set(currencies)) > 1:
+        symbols = "".join(set(currencies))
+        issues.append(CheckIssue(
+            "warning", "currency_mixed",
+            f"Multiple currency symbols detected ({symbols}) in one block — possible data corruption.",
+            block_index, page, "text"
+        ))
+    return issues
+
+
+def check_ocr_character_confusion(text: str, block_index: int, page: int | None) -> list[CheckIssue]:
+    """Detect likely OCR errors: 0→O, 1→l (lowercase L), 8→B in numeric contexts"""
+    issues: list[CheckIssue] = []
+
+    # Look for suspicious patterns: letter 'O' or 'l' next to numbers
+    suspicious = re.findall(r"\b\d+[Ol]+\b|\b[Ol]+\d+\b", text)
+
+    if suspicious:
+        issues.append(CheckIssue(
+            "info", "ocr_suspicious",
+            f"Possible OCR character confusion detected (0↔O, 1↔l) in: {', '.join(suspicious[:3])}",
+            block_index, page, "text"
+        ))
+    return issues
+
+
+def check_page_reference_validity(text: str, block_index: int, page: int | None, total_pages: int | None) -> list[CheckIssue]:
+    """Verify page references exist (e.g., 'see page 150' when document has 80 pages)"""
+    issues: list[CheckIssue] = []
+
+    if not total_pages:
+        return issues
+
+    # Find "page X" references
+    page_refs = re.findall(r"(?:p|pp|page|pages)\s*[.:]?\s*(\d+)", text, re.I)
+
+    for ref_page_str in page_refs:
+        try:
+            ref_page = int(ref_page_str)
+            if ref_page > total_pages or ref_page < 1:
+                issues.append(CheckIssue(
+                    "warning", "page_ref_invalid",
+                    f"Reference to page {ref_page} but document has {total_pages} pages.",
+                    block_index, page, "text"
+                ))
+        except ValueError:
+            pass
+
+    return issues
+
+
 def check_table_math(markdown: str, block_index: int, page: int | None) -> list[CheckIssue]:
     lines = [
         line.strip()
@@ -207,6 +298,22 @@ def run_heuristic_checks(
                 "Text block contains tabular patterns (pipe rows or aligned numbers) — MinerU may have missed a table here.",
                 idx, page, "text",
             ))
+
+        # NEW: Number format consistency (Asian vs European decimal/thousand separators)
+        issues.extend(check_number_format_consistency(text, idx, page))
+
+        # NEW: Date format consistency (MM/DD vs DD/MM)
+        issues.extend(check_date_format_consistency(text, idx, page))
+
+        # NEW: Currency symbol consistency
+        issues.extend(check_currency_consistency(text, idx, page))
+
+        # NEW: OCR character confusion (0→O, 1→l)
+        issues.extend(check_ocr_character_confusion(text, idx, page))
+
+        # NEW: Page reference validity
+        total_pages = page_count or (max((block_page(b) for b in blocks if block_page(b)), default=None))
+        issues.extend(check_page_reference_validity(text, idx, page, total_pages))
 
         # Track explicit table references (e.g. "as per Table 3", "see Schedule II")
         for match in _TABLE_REF_RE.finditer(text):

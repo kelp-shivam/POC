@@ -16,6 +16,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <style>
+    /* Hide form controls when embedded in Streamlit (use Streamlit inputs instead) */
+    .ctrl-group, #upload-btn, .url-wrap, #endpoint-input, .sel-wrap, .chip-row, #backend-sel {
+      display: none !important;
+    }
+
     /* ═══════════════════════════════════════════════════════════════
        DESIGN SYSTEM TOKENS
     ═══════════════════════════════════════════════════════════════ */
@@ -996,7 +1001,7 @@
     <div class="url-wrap">
       <span class="url-wrap-ico">🔗</span>
       <input type="text" id="endpoint-input"
-             placeholder="http://127.0.0.1:8000  — local MinerU bridge or Ngrok URL"
+             placeholder="http://127.0.0.1:8001  — local MinerU bridge or Ngrok URL"
              spellcheck="false" autocomplete="off" autocorrect="off">
     </div>
 
@@ -1571,7 +1576,7 @@ function esc(s) {
 (function restorePrefs() {
   const url = localStorage.getItem('mineru_endpoint');
   // Default to same origin when served from the FastAPI bridge
-  el.url.value = url || (window.location.origin !== 'null' ? window.location.origin : 'http://127.0.0.1:8000');
+  el.url.value = url || (window.location.origin !== 'null' ? window.location.origin : 'http://127.0.0.1:8001');
 
   const be = localStorage.getItem('mineru_backend');
   if (be) el.backend.value = be;
@@ -2917,7 +2922,7 @@ $('test-btn').addEventListener('click', testConnection);
 setStatus('', 'Ready');
 
 // Default local bridge. You can still paste a Colab/ngrok URL into the endpoint box.
-const LIVE_URL = 'http://127.0.0.1:8000';
+const LIVE_URL = 'http://127.0.0.1:8001';
 const _stored  = localStorage.getItem('mineru_endpoint') || '';
 if (LIVE_URL && _stored !== LIVE_URL) {
   // New tunnel detected — override whatever was cached

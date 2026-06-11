@@ -106,7 +106,7 @@ load_env()
 _PAGE_AREA_PT2        = 501_290.0   # A4 in pts²
 _MIN_AREA_RATIO       = 0.02        # blocks < 2% page area → SMALL_VISUAL (OCR only)
 _REPEAT_PAGE_THRESH   = 3           # same image on 3+ pages → DECORATIVE
-_LLM_CONCURRENCY      = int(os.getenv("LLM_CONCURRENCY", "4"))
+_LLM_CONCURRENCY      = int(os.getenv("LLM_CONCURRENCY", "2"))
 _IMPORTANCE_THRESHOLD = float(os.getenv("IMPORTANCE_THRESHOLD", "0.25"))
 _CONTEXT_WINDOW       = 3           # blocks before/after for context
 
@@ -222,6 +222,8 @@ def _kimi_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -
     """
     if _openai_sdk is None:
         return None
+
+    last_error = None
     for attempt in range(max_retries):
         key = _KIMI.acquire()
         if not key:
@@ -246,8 +248,16 @@ def _kimi_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -
                     out_tok=resp.usage.completion_tokens or 0,
                 )
             content = resp.choices[0].message.content
-            return content.strip() if content else None
+            if content:
+                return content.strip()
+            else:
+                last_error = "empty_content"
+                # Retry if content is empty
+                if attempt < max_retries - 1:
+                    time.sleep(1.0)
+                continue
         except Exception as exc:
+            last_error = str(exc)
             err = str(exc)
             if "429" in err or "rate" in err.lower():
                 time.sleep(2 ** attempt + 1)
@@ -744,6 +754,7 @@ _TABLE_JSON_SCHEMA = """\
 {
   "valid": <true|false>,
   "corrections": [{"location": "<row N col M>", "original": "<bad value>", "corrected": "<fixed value>"}],
+  "corrected_table": "<complete corrected markdown table or empty if no corrections needed>",
   "enrichment_notes": "<extra info from footnotes/context not in table itself, or empty string>",
   "summary": "<1-2 sentence description of what this table shows and its key insight>",
   "needs_review": <true|false>
@@ -786,37 +797,63 @@ def enrich_table_block(
     ctx, footnotes = _get_context_window(blocks, idx)
 
     prompt = (
-        f"You are reviewing a table extracted from a financial/business document.\n\n"
-        f"TABLE TEXT (from PDF extraction):\n{table_clean[:4000]}\n\n"
-        f"SURROUNDING CONTEXT (nearby blocks, same page):\n{ctx[:1500]}\n\n"
-        f"PAGE FOOTNOTES / ASIDES:\n{footnotes[:800]}\n\n"
-        "TASK — Return a single JSON object with ALL of these:\n"
-        "1. VALIDATE: Is every number/value correct and consistent?\n"
-        "2. CORRECT: List any corrections needed (wrong numbers, formatting errors, misread OCR).\n"
-        "3. ENRICH: Add any extra information from footnotes/context that the table doesn't include "
-        "   but is directly relevant (e.g. units clarification, footnote explanations, currency info).\n"
-        "4. SUMMARIZE: Write 1-2 sentences describing what this table shows and its key insight.\n\n"
-        f"Return ONLY this JSON schema:\n{_TABLE_JSON_SCHEMA}"
+        f"CRITICAL: Fix OCR/extraction errors in this financial table. Output corrected version.\n\n"
+        f"EXTRACTED TABLE:\n{table_clean[:4000]}\n\n"
+        f"CONTEXT:\n{ctx[:1500]}\n\n"
+        f"FOOTNOTES:\n{footnotes[:800]}\n\n"
+        "MANDATORY TASKS:\n"
+        "1. VALIDATE: Check every number, date, alignment for OCR errors (misread 0→O, 1→l, etc).\n"
+        "2. CORRECT: If invalid → output complete corrected markdown table in 'corrected_table' field.\n"
+        "   IMPORTANT: corrected_table must be valid GFM markdown table format:\n"
+        "   | Header1 | Header2 |\n"
+        "   |---------|----------|\n"
+        "   | Value1  | Value2  |\n"
+        "3. REPORT: List each correction as {location, original, corrected}.\n"
+        "4. ENRICH: Add missing info from context/footnotes.\n"
+        "5. SUMMARIZE: 1-2 sentences on what this table shows.\n\n"
+        f"Return ONLY valid JSON matching this schema:\n{_TABLE_JSON_SCHEMA}"
     )
 
     t0 = time.time()
-    if image_file:
+    # Use text-only for tables (faster, HTML is source of truth)
+    # Only use vision if explicitly needed or if text extraction is degraded
+    if was_degraded and image_file:
         raw = _gemini_vision(image_file, prompt, _ledger=ledger)
     else:
-        raw = _gemini_text(prompt, _ledger=ledger)
+        # Reduce prompt size if table HTML is very large
+        if len(table_clean) > 3000:
+            table_clean_short = table_clean[:2500]
+        else:
+            table_clean_short = table_clean
+        prompt_short = prompt.replace(f"TABLE TEXT (from PDF extraction):\n{table_clean[:4000]}",
+                                      f"TABLE TEXT (from PDF extraction):\n{table_clean_short}")
+        raw = _kimi_text(prompt_short, _ledger=ledger)
     latency_ms = int((time.time() - t0) * 1000)
 
     result = _parse_llm_json(raw)
+
+    # Graceful degradation: if LLM fails, skip enrichment instead of marking "error"
+    if raw is None:
+        result = {
+            "ok": False,
+            "needs_review": False,
+            "error": "llm_unavailable",
+            "summary": "(Table enrichment skipped — LLM unavailable)",
+            "enrichment_notes": "",
+            "corrections": [],
+        }
     result.update({
         "ok": True,
         "latency_ms": latency_ms,
         "source_quality": "degraded" if was_degraded else "ok",
         "had_embedded_image": image_file is not None,
+        "raw_response": raw,
     })
 
-    # Apply corrections patch-in-place
-    if result.get("corrections"):
-        _apply_table_corrections(block, result["corrections"])
+    # Apply corrections patch-in-place (prefer corrected_table if available)
+    corrected_table = result.get("corrected_table", "").strip() if result.get("corrected_table") else None
+    if result.get("corrections") or corrected_table:
+        _apply_table_corrections(block, result.get("corrections", []), corrected_table)
 
     return result
 
@@ -838,20 +875,31 @@ def _enrich_table_vision_only(
     result.update({
         "ok": True, "latency_ms": int((time.time() - t0) * 1000),
         "source_quality": "vision_recovery", "had_embedded_image": True,
+        "raw_response": raw,
     })
     return result
 
 
-def _apply_table_corrections(block: dict, corrections: list[dict]) -> None:
+def _apply_table_corrections(block: dict, corrections: list[dict], corrected_table: str | None = None) -> None:
     """Patch the block's table text with corrections; keep originals for audit."""
+    original = block.get("content") or block.get("table_body") or block.get("text") or ""
+    if isinstance(original, dict):
+        original = original.get("html") or original.get("table_body") or str(original)
+    original = str(original)
+    block.setdefault("original_table_text", original)
+
+    # Prefer LLM-generated corrected table if available
+    if corrected_table and corrected_table.strip():
+        block["content"] = corrected_table
+        return
+
+    # Fall back to correction-by-correction string replacement
     if not corrections:
         return
-    original = block.get("content") or block.get("table_body") or block.get("text") or ""
-    block.setdefault("original_table_text", original)
     for corr in corrections:
         orig_val = corr.get("original", "")
         new_val  = corr.get("corrected", "")
-        if orig_val and new_val and isinstance(original, str):
+        if orig_val and new_val:
             original = original.replace(orig_val, new_val, 1)
     block["content"] = original
 
@@ -1243,8 +1291,10 @@ def enrich_zip_with_kimi(zip_path: Path, task_dir: Path, task: dict[str, Any]) -
         result   = enrich_table_block(blk, blocks, idx, img_file, ledger)
         blk["llm_enrichment"] = result
         # RAG text
-        corrected_src = blk.get("content") or str(src)
-        blk["rag_text"] = _table_to_rag_text(corrected_src)
+        corrected_src = blk.get("content") or src
+        if isinstance(corrected_src, dict):
+            corrected_src = corrected_src.get("html") or corrected_src.get("table_body") or str(corrected_src)
+        blk["rag_text"] = _table_to_rag_text(str(corrected_src))
         return {
             "block_index": idx,
             "page": (blk.get("page_idx") or 0) + 1,
@@ -1470,10 +1520,14 @@ def process_task(task_id: str) -> None:
         download_zip(zip_url, raw_zip)
         timings["download_ms"] = int((time.time() - t) * 1000)
 
-        task.update({"status": "enriching", "updated_at": now_ms()})
-        t = time.time()
-        result_zip = enrich_zip_with_kimi(raw_zip, task_dir, task)
-        timings["enrich_ms"] = int((time.time() - t) * 1000)
+        if task.get("enable_enrichment", True):
+            task.update({"status": "enriching", "updated_at": now_ms()})
+            t = time.time()
+            result_zip = enrich_zip_with_kimi(raw_zip, task_dir, task)
+            timings["enrich_ms"] = int((time.time() - t) * 1000)
+        else:
+            result_zip = raw_zip
+            timings["enrich_ms"] = 0
 
         timings["total_ms"] = int((time.time() - wall_start) * 1000)
         task.update({
@@ -1574,11 +1628,12 @@ async def submit_task(
     file:          UploadFile = File(None),
     files:         list[UploadFile] = File(None),
     model_version: str  = Form("vlm"),
-    enable_formula: bool = Form(True),
-    enable_table:  bool  = Form(True),
-    language:      str   = Form("en"),
-    is_ocr:        bool  = Form(False),
-    page_ranges:   str   = Form(""),
+    enable_formula: str = Form("true"),
+    enable_table:  str  = Form("true"),
+    language:      str  = Form("en"),
+    is_ocr:        str  = Form("false"),
+    page_ranges:   str  = Form(""),
+    enable_enrichment: str = Form("true"),
 ) -> dict[str, Any]:
     upload = file or (files[0] if files else None)
     if upload is None:
@@ -1597,11 +1652,12 @@ async def submit_task(
         "input_path":    str(input_path),
         "task_dir":      str(task_dir),
         "model_version": model_version,
-        "enable_formula": enable_formula,
-        "enable_table":   enable_table,
+        "enable_formula": enable_formula.lower() == "true",
+        "enable_table":   enable_table.lower() == "true",
         "language":       language,
-        "is_ocr":         is_ocr,
+        "is_ocr":         is_ocr.lower() == "true",
         "page_ranges":    page_ranges,
+        "enable_enrichment": enable_enrichment.lower() == "true",
         "created_at":    now_ms(),
         "updated_at":    now_ms(),
     }
@@ -1702,7 +1758,7 @@ async def probe_run(body: dict[str, Any]) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "8001"))
     uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
 
 

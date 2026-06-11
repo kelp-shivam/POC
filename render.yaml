@@ -1,0 +1,35 @@
+services:
+  # Backend API (FastAPI)
+  - type: web
+    name: docextract-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn mineru_server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8000
+    envVars:
+      - key: MINERU_API_KEY
+        sync: false
+      - key: api_key_1
+        sync: false
+      - key: api_key_2
+        sync: false
+      - key: api_key_3
+        sync: false
+      - key: api_key_4
+        sync: false
+
+  # Frontend (Streamlit)
+  - type: web
+    name: docextract-frontend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements-streamlit.txt
+    startCommand: streamlit run streamlit_cloud_app.py --server.port=$PORT --server.address=0.0.0.0
+    envVars:
+      - key: DOCEXTRACT_BACKEND_URL
+        fromService:
+          name: docextract-backend
+          property: url
