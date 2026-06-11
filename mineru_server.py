@@ -1797,7 +1797,7 @@ async def compare_extraction(
 
     # Method 1: LlamaParse
     if _LLAMAPARSE_API_KEY:
-        llamaparse_result = extract_with_llamaparse(pdf_bytes)
+        llamaparse_result = await extract_with_llamaparse(pdf_bytes)
         if llamaparse_result:
             results["llamaparse"] = {
                 "markdown": llamaparse_result.get("markdown", ""),
