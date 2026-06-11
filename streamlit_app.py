@@ -261,14 +261,50 @@ if st.session_state.compare_result:
 elif st.session_state.extract_result:
     st.markdown(f"## {st.session_state.extract_result.get('method', 'Extraction Result')}")
 
-    cols = st.columns(3)
+    result = st.session_state.extract_result
+    pages = result.get("pages", 0)
+    ledger = result.get("ledger", {})
+
+    # Cost calculation (Azure gpt-4o-mini pricing)
+    input_tokens = ledger.get("input_tokens", 0)
+    cached_tokens = ledger.get("cached_tokens", 0)
+    output_tokens = ledger.get("output_tokens", 0)
+    cost_in = input_tokens * 0.15 / 1e6
+    cost_cached = cached_tokens * 0.075 / 1e6
+    cost_out = output_tokens * 0.60 / 1e6
+    cost_llm = cost_in + cost_cached + cost_out
+    cost_mineru = 0.05 * pages
+    cost_total = cost_llm + cost_mineru
+
+    cols = st.columns(4)
     with cols[0]:
-        st.metric("Pages", st.session_state.extract_result.get("pages", 0))
+        st.metric("Pages", pages)
     with cols[1]:
-        st.metric("Cost", st.session_state.extract_result.get("cost", "—"))
+        st.metric("LLM Tokens", f"{input_tokens + output_tokens:,}", help=f"in:{input_tokens:,} cached:{cached_tokens:,} out:{output_tokens:,}")
     with cols[2]:
-        chars = len(st.session_state.extract_result.get("markdown", ""))
-        st.metric("Characters", f"{chars:,}")
+        st.metric("LLM Cost", f"${cost_llm:.4f}")
+    with cols[3]:
+        st.metric("Total Cost", f"${cost_total:.4f}", help=f"MinerU: ${cost_mineru:.4f}")
+
+    # Cost breakdown
+    with st.expander("💰 Detailed Cost Analysis", expanded=False):
+        cols = st.columns(2)
+        with cols[0]:
+            st.markdown("**Azure gpt-4o-mini (Foundry)**")
+            st.metric("Input Tokens", f"{input_tokens:,}", f"${cost_in:.4f}")
+            st.metric("Cached Tokens", f"{cached_tokens:,}", f"${cost_cached:.4f}")
+            st.metric("Output Tokens", f"{output_tokens:,}", f"${cost_out:.4f}")
+            st.metric("Subtotal (LLM)", f"${cost_llm:.4f}")
+        with cols[1]:
+            st.markdown("**Comparison vs LlamaParse**")
+            llamaparse_cost = 0.0125 * pages
+            savings = llamaparse_cost - cost_total
+            st.metric("LlamaParse", f"${llamaparse_cost:.4f}", f"(text-only, no enrichment)")
+            st.metric("Our Method", f"${cost_total:.4f}", f"(tables + visuals + enrichment)")
+            if savings > 0:
+                st.success(f"💡 **Save ${savings:.4f}** with tables & enrichment!")
+            else:
+                st.info(f"ℹ️ Costs **${abs(savings):.4f}}** more but includes full enrichment")
 
     st.divider()
     st.markdown("### 📄 Markdown Content")
