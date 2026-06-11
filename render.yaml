@@ -20,12 +20,21 @@ services:
       # LlamaParse (optional)
       - key: LLAMAPARSE_API_KEY
         sync: false
-      # Azure Document Intelligence (optional)
+      # Azure Document Intelligence (required)
       - key: AZURE_DI_ENDPOINT
         sync: false
       - key: AZURE_DI_KEY
         sync: false
       - key: AZURE_DI_PROJECT
+        sync: false
+      - key: AZURE_DI_DEPLOYMENT
+        sync: false
+      # Service Principal (optional, for advanced auth)
+      - key: AZURE_TENANT_ID
+        sync: false
+      - key: AZURE_CLIENT_ID
+        sync: false
+      - key: AZURE_CLIENT_SECRET
         sync: false
       # Azure OpenAI Foundry (GPT-4o mini - enrichment)
       - key: AZURE_OPENAI_API_KEY

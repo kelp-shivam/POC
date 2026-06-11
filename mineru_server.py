@@ -21,18 +21,19 @@ All 4 methods available via:
   POST /extract/mineru-raw
   POST /compare (all 4 at once)
 
-Required env vars (all 4 methods):
+Required (3 extraction methods):
   MINERU_API_KEY
   LLAMAPARSE_API_KEY
   AZURE_DI_ENDPOINT
   AZURE_DI_KEY
-  AZURE_OPENAI_API_KEY
+
+Optional (enrichment + advanced):
+  AZURE_OPENAI_API_KEY (enables /extract/mineru-azure)
   AZURE_OPENAI_ENDPOINT
   AZURE_OPENAI_DEPLOYMENT (gpt-4o-mini)
   AZURE_OPENAI_API_VERSION (2024-02-15)
-
-Optional:
   AZURE_DI_PROJECT (custom model)
+  AZURE_DI_DEPLOYMENT (custom model)
 """
 
 from __future__ import annotations
@@ -151,21 +152,25 @@ _LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
 if not _LLAMAPARSE_API_KEY:
     raise RuntimeError("Missing LlamaParse credentials: LLAMAPARSE_API_KEY required")
 
-# 2. Azure Document Intelligence
+# 2. Azure Document Intelligence (with service principal support)
 _AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT", "")
 _AZURE_DI_KEY = os.getenv("AZURE_DI_KEY", "")
 _AZURE_DI_PROJECT = os.getenv("AZURE_DI_PROJECT", "")
+_AZURE_DI_DEPLOYMENT = os.getenv("AZURE_DI_DEPLOYMENT", "")
+# Service principal (optional, for advanced auth)
+_AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID", "")
+_AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")
+_AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
     raise RuntimeError("Missing Azure DI credentials: AZURE_DI_ENDPOINT and AZURE_DI_KEY required")
 
-# 3. Azure OpenAI Foundry (enrichment)
+# 3. Azure OpenAI Foundry (enrichment - optional)
 _AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
 _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 _AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
 _AZURE_MODEL        = "gpt-4o-mini"
-if not (_AZURE_API_KEY and _AZURE_ENDPOINT):
-    raise RuntimeError("Missing Azure OpenAI credentials: AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
+_AZURE_OPENAI_AVAILABLE = bool(_AZURE_API_KEY and _AZURE_ENDPOINT)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Extraction Methods
@@ -1754,52 +1759,56 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
                 "status": "success",
             }
 
-    # Method 3: MinerU + Azure OpenAI (full enrichment)
-    task_id = str(uuid.uuid4())
-    task_dir = Path(tempfile.gettempdir()) / "docextract_compare" / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = task_dir / file.filename
-    pdf_path.write_bytes(pdf_bytes)
+    # Method 3 & 4: MinerU (with or without Azure OpenAI enrichment)
+    if _AZURE_OPENAI_AVAILABLE:
+        task_id = str(uuid.uuid4())
+        task_dir = Path(tempfile.gettempdir()) / "docextract_compare" / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        pdf_path = task_dir / file.filename
+        pdf_path.write_bytes(pdf_bytes)
 
-    try:
-        batch_id = submit_local_file_to_mineru(
-            pdf_path,
-            model_version="vlm",
-            enable_formula=True,
-            enable_table=True,
-            language="en",
-            is_ocr=True,
-            page_ranges=None,
-        )
-        zip_url = poll_mineru_batch(batch_id, {})
-        raw_zip = task_dir / "mineru.zip"
-        download_zip(zip_url, raw_zip)
+        try:
+            batch_id = submit_local_file_to_mineru(
+                pdf_path,
+                model_version="vlm",
+                enable_formula=True,
+                enable_table=True,
+                language="en",
+                is_ocr=True,
+                page_ranges=None,
+            )
+            zip_url = poll_mineru_batch(batch_id, {})
+            raw_zip = task_dir / "mineru.zip"
+            download_zip(zip_url, raw_zip)
 
-        extract_dir = task_dir / "extract"
-        extract_dir.mkdir(exist_ok=True)
-        with zipfile.ZipFile(raw_zip) as zf:
-            zf.extractall(extract_dir)
+            extract_dir = task_dir / "extract"
+            extract_dir.mkdir(exist_ok=True)
+            with zipfile.ZipFile(raw_zip) as zf:
+                zf.extractall(extract_dir)
 
-        md_file = next(extract_dir.rglob("full.md"), None)
-        page_count = 0
-        content = ""
-        if md_file:
-            content = md_file.read_text(encoding="utf-8", errors="ignore")
-            page_count = len([l for l in content.split("\n") if l.startswith("# Page")])
+            md_file = next(extract_dir.rglob("full.md"), None)
+            page_count = 0
+            content = ""
+            if md_file:
+                content = md_file.read_text(encoding="utf-8", errors="ignore")
+                page_count = len([l for l in content.split("\n") if l.startswith("# Page")])
 
-        results["mineru_azure"] = {
-            "markdown": content,
-            "pages": page_count,
-            "status": "success",
-        }
-        results["mineru_raw"] = {
-            "markdown": content,
-            "pages": page_count,
-            "status": "success",
-        }
-    except Exception as e:
-        results["mineru_azure"] = {"status": "failed", "error": str(e)}
-        results["mineru_raw"] = {"status": "failed", "error": str(e)}
+            results["mineru_azure"] = {
+                "markdown": content,
+                "pages": page_count,
+                "status": "success",
+            }
+            results["mineru_raw"] = {
+                "markdown": content,
+                "pages": page_count,
+                "status": "success",
+            }
+        except Exception as e:
+            results["mineru_azure"] = {"status": "failed", "error": str(e)}
+            results["mineru_raw"] = {"status": "failed", "error": str(e)}
+    else:
+        results["mineru_azure"] = {"status": "skipped", "message": "Azure OpenAI not configured"}
+        results["mineru_raw"] = {"status": "skipped", "message": "Azure OpenAI not configured"}
 
     return results
 
@@ -1839,6 +1848,8 @@ async def extract_azure_di(file: UploadFile = File(...)) -> dict[str, Any]:
 @app.post("/extract/mineru-azure")
 async def extract_mineru_azure(file: UploadFile = File(...)) -> dict[str, Any]:
     """Extract PDF with MinerU + Azure OpenAI enrichment."""
+    if not _AZURE_OPENAI_AVAILABLE:
+        return {"status": "error", "message": "Azure OpenAI not configured. Set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"}
     pdf_bytes = await file.read()
     task_id = str(uuid.uuid4())
     task_dir = Path(tempfile.gettempdir()) / "extract_mineru_azure" / task_id
