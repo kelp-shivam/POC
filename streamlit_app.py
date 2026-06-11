@@ -860,7 +860,7 @@ def render_enrichment_tab() -> None:
     enrich_md = st.session_state.enrichment_md
     status = st.session_state.status
 
-    tab0, tab1 = st.tabs(["⏱ Summary & Cost", "📋 Final Document (with AI Enrichments)"])
+    tab0, tab1, tab2 = st.tabs(["⏱ Summary & Cost", "📋 Final Document (with AI Enrichments)", "📊 Table Details"])
 
     with tab0:
         # Timing & Cost Summary
