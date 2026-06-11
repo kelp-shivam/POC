@@ -51,8 +51,11 @@ from __future__ import annotations
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
+    from pathlib import Path as _Path
+    # Load from script directory, not current working directory
+    _script_dir = _Path(__file__).parent
+    load_dotenv(_script_dir / ".env")
+except (ImportError, NameError):
     pass
 
 import asyncio
