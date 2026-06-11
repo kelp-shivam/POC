@@ -1,26 +1,38 @@
 """
-DocExtract — MinerU + Azure GPT-4o-mini Pipeline
-==================================================
-Complete pipeline:
-  1. Submit PDF to MinerU cloud (OCR + layout extraction)
-  2. Download result ZIP (content_list, full.md, images)
-  3. Post-process with Azure OpenAI Foundry (GPT-4o-mini):
-       - Table validation + correction + enrichment + summary
-       - Image/chart extraction: type, title, data values, summary, enrichment notes
-       - Tables with embedded images: send BOTH text + vision
-       - Garbage detection before every LLM call
-       - Perceptual hash cache (skip duplicate images)
-       - Importance scoring (skip trivial visuals)
-       - Surrounding context + footnotes sent with every visual
-  4. Heuristic quality checks
-  5. Produce enriched ZIP + final_merged.md
+DocExtract — 4 Extraction Methods (Unified)
+=============================================
+4 extraction methods + 1 enrichment LLM:
 
-Requires env vars:
-  MINERU_API_KEY / miner_api_key
+Extraction:
+  1. LlamaParse ($0.0125/page, text-only)
+  2. Azure Document Intelligence (pay-per-page, custom models)
+  3. MinerU + Azure OpenAI (enriched tables/visuals)
+  4. MinerU raw (layout extraction, $0.05)
+
+Enrichment (for methods 3):
+  - Table validation + correction + enrichment + summary
+  - Image/chart extraction: type, title, data, summary
+  - Heuristic quality checks
+
+All 4 methods available via:
+  POST /extract/llamaparse
+  POST /extract/azure-di
+  POST /extract/mineru-azure
+  POST /extract/mineru-raw
+  POST /compare (all 4 at once)
+
+Required env vars (all 4 methods):
+  MINERU_API_KEY
+  LLAMAPARSE_API_KEY
+  AZURE_DI_ENDPOINT
+  AZURE_DI_KEY
   AZURE_OPENAI_API_KEY
   AZURE_OPENAI_ENDPOINT
-  AZURE_OPENAI_DEPLOYMENT (default: gpt-4o-mini)
-  AZURE_OPENAI_API_VERSION (default: 2024-02-15)
+  AZURE_OPENAI_DEPLOYMENT (gpt-4o-mini)
+  AZURE_OPENAI_API_VERSION (2024-02-15)
+
+Optional:
+  AZURE_DI_PROJECT (custom model)
 """
 
 from __future__ import annotations
@@ -132,15 +144,19 @@ _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Document Extraction Providers (4 Methods)
+#  Document Extraction Providers (4 Methods - All Required)
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. LlamaParse
 _LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
+if not _LLAMAPARSE_API_KEY:
+    raise RuntimeError("Missing LlamaParse credentials: LLAMAPARSE_API_KEY required")
 
 # 2. Azure Document Intelligence
 _AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT", "")
 _AZURE_DI_KEY = os.getenv("AZURE_DI_KEY", "")
 _AZURE_DI_PROJECT = os.getenv("AZURE_DI_PROJECT", "")
+if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
+    raise RuntimeError("Missing Azure DI credentials: AZURE_DI_ENDPOINT and AZURE_DI_KEY required")
 
 # 3. Azure OpenAI Foundry (enrichment)
 _AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
@@ -148,7 +164,6 @@ _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 _AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
 _AZURE_MODEL        = "gpt-4o-mini"
-
 if not (_AZURE_API_KEY and _AZURE_ENDPOINT):
     raise RuntimeError("Missing Azure OpenAI credentials: AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
 
@@ -157,8 +172,6 @@ if not (_AZURE_API_KEY and _AZURE_ENDPOINT):
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_with_llamaparse(pdf_bytes: bytes) -> dict[str, Any] | None:
     """Extract PDF with LlamaParse API."""
-    if not _LLAMAPARSE_API_KEY:
-        return None
     try:
         import requests
         url = "https://api.llamaparse.com/api/parsing/job"
@@ -188,8 +201,6 @@ def extract_with_llamaparse(pdf_bytes: bytes) -> dict[str, Any] | None:
 
 def extract_with_azure_di(pdf_bytes: bytes) -> dict[str, Any] | None:
     """Extract PDF with Azure Document Intelligence."""
-    if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
-        return None
     try:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
         from azure.core.credentials import AzureKeyCredential
@@ -1796,8 +1807,6 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
 @app.post("/extract/llamaparse")
 async def extract_llamaparse(file: UploadFile = File(...)) -> dict[str, Any]:
     """Extract PDF with LlamaParse only."""
-    if not _LLAMAPARSE_API_KEY:
-        return {"status": "error", "message": "LlamaParse API key not configured"}
     pdf_bytes = await file.read()
     result = extract_with_llamaparse(pdf_bytes)
     if result:
@@ -1814,8 +1823,6 @@ async def extract_llamaparse(file: UploadFile = File(...)) -> dict[str, Any]:
 @app.post("/extract/azure-di")
 async def extract_azure_di(file: UploadFile = File(...)) -> dict[str, Any]:
     """Extract PDF with Azure Document Intelligence only."""
-    if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
-        return {"status": "error", "message": "Azure DI credentials not configured"}
     pdf_bytes = await file.read()
     result = extract_with_azure_di(pdf_bytes)
     if result:
