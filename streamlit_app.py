@@ -1312,7 +1312,7 @@ def main() -> None:
 
         st.divider()
 
-        # Scrollable markdown comparison (2x2 grid with full content)
+        # Scrollable markdown comparison (2x2 grid with full content & proper rendering)
         comp_cols = st.columns(2)
 
         # Column 1 (Left): LlamaParse & MinerU+Azure
@@ -1322,25 +1322,8 @@ def main() -> None:
             llama = result.get("llamaparse", {})
             if llama and llama.get("status") == "success":
                 markdown_content = llama.get("markdown", "")
-                # Scrollable container with full markdown
-                st.markdown(
-                    f"""
-                    <div style="
-                        background: rgba(15,23,42,0.8);
-                        border: 1px solid rgba(99,102,241,0.2);
-                        border-radius: 8px;
-                        padding: 16px;
-                        height: 600px;
-                        overflow-y: auto;
-                        font-family: 'Monaco', monospace;
-                        font-size: 12px;
-                        color: #e4eaf5;
-                    ">
-                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                with st.container(border=True):
+                    st.markdown(markdown_content)
                 st.caption(f"📊 {len(markdown_content)} chars extracted")
             else:
                 st.warning("❌ Extraction failed or not available")
@@ -1352,24 +1335,8 @@ def main() -> None:
             azure = result.get("mineru_azure", {})
             if azure and azure.get("status") == "success":
                 markdown_content = azure.get("markdown", "")
-                st.markdown(
-                    f"""
-                    <div style="
-                        background: rgba(15,23,42,0.8);
-                        border: 1px solid rgba(99,102,241,0.2);
-                        border-radius: 8px;
-                        padding: 16px;
-                        height: 600px;
-                        overflow-y: auto;
-                        font-family: 'Monaco', monospace;
-                        font-size: 12px;
-                        color: #e4eaf5;
-                    ">
-                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                with st.container(border=True):
+                    st.markdown(markdown_content)
                 st.caption(f"📊 {len(markdown_content)} chars + enrichment applied")
             else:
                 st.warning("❌ Extraction failed or not available")
@@ -1381,24 +1348,8 @@ def main() -> None:
             di = result.get("azure_di", {})
             if di and di.get("status") == "success":
                 markdown_content = di.get("markdown", "")
-                st.markdown(
-                    f"""
-                    <div style="
-                        background: rgba(15,23,42,0.8);
-                        border: 1px solid rgba(99,102,241,0.2);
-                        border-radius: 8px;
-                        padding: 16px;
-                        height: 600px;
-                        overflow-y: auto;
-                        font-family: 'Monaco', monospace;
-                        font-size: 12px;
-                        color: #e4eaf5;
-                    ">
-                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                with st.container(border=True):
+                    st.markdown(markdown_content)
                 st.caption(f"📊 {len(markdown_content)} chars extracted")
             else:
                 st.warning("❌ Extraction failed or not available")
@@ -1410,24 +1361,8 @@ def main() -> None:
             raw = result.get("mineru_raw", {})
             if raw and raw.get("status") == "success":
                 markdown_content = raw.get("markdown", "")
-                st.markdown(
-                    f"""
-                    <div style="
-                        background: rgba(15,23,42,0.8);
-                        border: 1px solid rgba(99,102,241,0.2);
-                        border-radius: 8px;
-                        padding: 16px;
-                        height: 600px;
-                        overflow-y: auto;
-                        font-family: 'Monaco', monospace;
-                        font-size: 12px;
-                        color: #e4eaf5;
-                    ">
-                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                with st.container(border=True):
+                    st.markdown(markdown_content)
                 st.caption(f"📊 {len(markdown_content)} chars extracted")
             else:
                 st.warning("❌ Extraction failed or not available")
