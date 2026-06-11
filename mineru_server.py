@@ -1,10 +1,10 @@
 """
-DocExtract — Local MinerU Bridge  (Final Production Version)
-=============================================================
+DocExtract — MinerU + Azure GPT-4o-mini Pipeline
+==================================================
 Complete pipeline:
   1. Submit PDF to MinerU cloud (OCR + layout extraction)
   2. Download result ZIP (content_list, full.md, images)
-  3. Post-process with Kimi K2.5 (HPC-AI, multi-key round-robin):
+  3. Post-process with Azure OpenAI Foundry (GPT-4o-mini):
        - Table validation + correction + enrichment + summary
        - Image/chart extraction: type, title, data values, summary, enrichment notes
        - Tables with embedded images: send BOTH text + vision
@@ -13,12 +13,14 @@ Complete pipeline:
        - Importance scoring (skip trivial visuals)
        - Surrounding context + footnotes sent with every visual
   4. Heuristic quality checks
-  5. Produce enriched ZIP + enrichment.md
+  5. Produce enriched ZIP + final_merged.md
 
-Reads from .env:
+Requires env vars:
   MINERU_API_KEY / miner_api_key
-  api_key_1 / api_key_2 / api_key_3 / api_key_4  (Kimi HPC-AI keys, round-robin)
-  NVIDIA_API_KEY  (fallback / Model Lab)
+  AZURE_OPENAI_API_KEY
+  AZURE_OPENAI_ENDPOINT
+  AZURE_OPENAI_DEPLOYMENT (default: gpt-4o-mini)
+  AZURE_OPENAI_API_VERSION (default: 2024-02-15)
 """
 
 from __future__ import annotations
@@ -110,10 +112,9 @@ _LLM_CONCURRENCY      = int(os.getenv("LLM_CONCURRENCY", "2"))
 _IMPORTANCE_THRESHOLD = float(os.getenv("IMPORTANCE_THRESHOLD", "0.25"))
 _CONTEXT_WINDOW       = 3           # blocks before/after for context
 
-# Kimi K2.5 via HPC-AI — official pricing (per 1M tokens)
-_COST_PER_1M_IN     = 0.30   # $0.30 / 1M input tokens  (uncached)
-_COST_PER_1M_CACHED = 0.05   # $0.05 / 1M cached input tokens
-_COST_PER_1M_OUT    = 1.50   # $1.50 / 1M output tokens
+# Azure OpenAI Foundry GPT-4o-mini pricing (per 1M tokens)
+_COST_PER_1M_IN     = 0.15   # $0.15 / 1M input tokens
+_COST_PER_1M_OUT    = 0.60   # $0.60 / 1M output tokens
 
 _DATA_WORDS = re.compile(
     r"\b(figure|fig|chart|graph|plot|trend|distribution|comparison|"
@@ -130,113 +131,19 @@ _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  LLM Provider Config  (GPT-4o-mini via Azure Foundry default)
-#
-#  To use OpenAI directly set:
-#    LLM_PROVIDER=openai
-#    OPENAI_API_KEY=sk-...
-#
-#  To use Kimi HPC-AI set:
-#    LLM_PROVIDER=kimi
-#    api_key_1, api_key_2, api_key_3, api_key_4 env vars
-#
-#  Azure OpenAI Foundry (current default):
-#    LLM_PROVIDER=azure (or auto-detect from env vars)
-#    AZURE_OPENAI_API_KEY=...
-#    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-#    AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+#  LLM Provider: Azure OpenAI Foundry (GPT-4o-mini only)
 # ─────────────────────────────────────────────────────────────────────────────
 _AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
 _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 _AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
+_AZURE_MODEL        = "gpt-4o-mini"
 
-# Auto-detect Azure if credentials present, else use explicit env var
-if _AZURE_API_KEY and _AZURE_ENDPOINT:
-    _LLM_PROVIDER = "azure"
-else:
-    _LLM_PROVIDER = os.getenv("LLM_PROVIDER", "azure").lower()  # azure | openai | kimi
-
-# Kimi (default)
-_KIMI_BASE_URL  = "https://api.hpc-ai.com/inference/v1"
-_KIMI_MODEL     = "moonshotai/kimi-k2.5"
-_KIMI_RATE_LIMIT = 5    # calls per key per 60 s
-_KIMI_WINDOW     = 60   # seconds
-
-# OpenAI / GPT-4o-mini
-_OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-class KimiKeyRotator:
-    """Thread-safe round-robin dispatcher with per-key token-bucket rate limiting."""
-
-    def __init__(self) -> None:
-        self._lock   = threading.Lock()
-        self._idx    = 0
-        self._keys: list[str] = []
-        self._timestamps: dict[str, list[float]] = {}   # key -> recent call times
-        self._reload()
-
-    def _reload(self) -> None:
-        keys: list[str] = []
-        for i in range(1, 20):
-            k = os.getenv(f"api_key_{i}", "").strip()
-            if k:
-                keys.append(k)
-        self._keys = keys
-        for k in keys:
-            self._timestamps.setdefault(k, [])
-
-    @property
-    def available(self) -> bool:
-        return bool(self._keys)
-
-    @property
-    def key_count(self) -> int:
-        return len(self._keys)
-
-    def _prune(self, key: str) -> None:
-        now = time.time()
-        self._timestamps[key] = [t for t in self._timestamps[key] if now - t < _KIMI_WINDOW]
-
-    def _wait_for_key(self, key: str) -> float:
-        """Seconds until this key has a free slot (0 if already free)."""
-        if len(self._timestamps[key]) < _KIMI_RATE_LIMIT:
-            return 0.0
-        oldest = self._timestamps[key][0]
-        return max(0.0, _KIMI_WINDOW - (time.time() - oldest))
-
-    def acquire(self) -> str | None:
-        """Return next available API key, blocking if all keys are rate-limited."""
-        if not self._keys:
-            self._reload()
-        if not self._keys:
-            return None
-        with self._lock:
-            # One pass: try each key in round-robin
-            for _ in range(len(self._keys)):
-                key = self._keys[self._idx % len(self._keys)]
-                self._idx += 1
-                self._prune(key)
-                if len(self._timestamps[key]) < _KIMI_RATE_LIMIT:
-                    self._timestamps[key].append(time.time())
-                    return key
-            # All keys exhausted — find shortest wait
-            best = min(self._keys, key=lambda k: self._wait_for_key(k))
-            wait = self._wait_for_key(best)
-        if wait > 0:
-            time.sleep(wait + 0.3)
-        with self._lock:
-            self._prune(best)
-            self._timestamps[best].append(time.time())
-        return best
-
-
-_KIMI = KimiKeyRotator()
-
+if not (_AZURE_API_KEY and _AZURE_ENDPOINT):
+    raise RuntimeError("Missing Azure credentials: AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Unified LLM Callers  (Kimi | OpenAI | Azure — switchable via LLM_PROVIDER)
+#  LLM Callers (Azure OpenAI Foundry only)
 # ─────────────────────────────────────────────────────────────────────────────
 _LLM_SYSTEM = (
     "You are a precise document data extraction engine. "
@@ -246,31 +153,18 @@ _LLM_SYSTEM = (
 
 
 def _get_llm_client() -> tuple[Any, str]:
-    """Return (client, model_name) based on LLM_PROVIDER env var."""
+    """Return Azure OpenAI Foundry client (GPT-4o-mini only)."""
     if _openai_sdk is None:
         raise RuntimeError("openai SDK not installed")
-
-    if _LLM_PROVIDER == "azure":
-        client = _openai_sdk.AzureOpenAI(
-            api_key=_AZURE_API_KEY,
-            azure_endpoint=_AZURE_ENDPOINT,
-            api_version=_AZURE_API_VERSION,
-        )
-        return client, _AZURE_DEPLOYMENT
-
-    if _LLM_PROVIDER == "openai":
-        client = _openai_sdk.OpenAI(api_key=_OPENAI_API_KEY)
-        return client, _OPENAI_MODEL
-
-    # Default: Kimi HPC-AI (round-robin key rotation)
-    key = _KIMI.acquire()
-    if not key:
-        raise RuntimeError("No Kimi API keys available")
-    client = _openai_sdk.OpenAI(api_key=key, base_url=_KIMI_BASE_URL)
-    return client, _KIMI_MODEL
+    client = _openai_sdk.AzureOpenAI(
+        api_key=_AZURE_API_KEY,
+        azure_endpoint=_AZURE_ENDPOINT,
+        api_version=_AZURE_API_VERSION,
+    )
+    return client, _AZURE_DEPLOYMENT
 
 
-def _kimi_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
+def _llm_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
     """Text-only LLM call. Provider selected by LLM_PROVIDER env var."""
     if _openai_sdk is None:
         return None
@@ -307,7 +201,7 @@ def _kimi_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -
     return None
 
 
-def _kimi_vision(image_path: Path, prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
+def _llm_vision(image_path: Path, prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
     """Vision LLM call. Provider selected by LLM_PROVIDER env var."""
     if _openai_sdk is None:
         return None
@@ -350,8 +244,6 @@ def _kimi_vision(image_path: Path, prompt: str, max_retries: int = 3, _ledger: d
 
 
 # Aliases — existing call-sites unchanged
-_gemini_text   = _kimi_text
-_gemini_vision = _kimi_vision
 
 
 def _parse_llm_json(raw: str | None) -> dict[str, Any]:
@@ -863,7 +755,7 @@ def enrich_table_block(
             table_clean_short = table_clean
         prompt_short = prompt.replace(f"TABLE TEXT (from PDF extraction):\n{table_clean[:4000]}",
                                       f"TABLE TEXT (from PDF extraction):\n{table_clean_short}")
-        raw = _kimi_text(prompt_short, _ledger=ledger)
+        raw = _llm_text(prompt_short, _ledger=ledger)
     latency_ms = int((time.time() - t0) * 1000)
 
     result = _parse_llm_json(raw)
@@ -1347,7 +1239,7 @@ def build_enrichment_md(
 # ─────────────────────────────────────────────────────────────────────────────
 #  Main Enrichment Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
-def enrich_zip_with_kimi(zip_path: Path, task_dir: Path, task: dict[str, Any]) -> Path:
+def enrich_zip_with_llm(zip_path: Path, task_dir: Path, task: dict[str, Any]) -> Path:
     """
     Full post-processing pipeline:
       1. Extract ZIP
@@ -1657,7 +1549,7 @@ def process_task(task_id: str) -> None:
         if task.get("enable_enrichment", True):
             task.update({"status": "enriching", "updated_at": now_ms()})
             t = time.time()
-            result_zip = enrich_zip_with_kimi(raw_zip, task_dir, task)
+            result_zip = enrich_zip_with_llm(raw_zip, task_dir, task)
             timings["enrich_ms"] = int((time.time() - t) * 1000)
         else:
             result_zip = raw_zip
@@ -1683,7 +1575,7 @@ def process_task(task_id: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 #  FastAPI Application
 # ─────────────────────────────────────────────────────────────────────────────
-app = FastAPI(title="DocExtract MinerU — Kimi K2.5 Pipeline")
+app = FastAPI(title="DocExtract MinerU — Azure GPT-4o-mini Pipeline")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
@@ -1702,33 +1594,17 @@ def serve_ui() -> HTMLResponse:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    llm_ready = (
-        (_LLM_PROVIDER == "kimi" and _KIMI.available)
-        or (_LLM_PROVIDER == "openai" and bool(_OPENAI_API_KEY))
-        or (_LLM_PROVIDER == "azure" and bool(_AZURE_API_KEY) and bool(_AZURE_ENDPOINT))
-    )
-    active_model = (
-        _OPENAI_MODEL if _LLM_PROVIDER == "openai"
-        else _AZURE_DEPLOYMENT if _LLM_PROVIDER == "azure"
-        else _KIMI_MODEL
-    )
+    llm_ready = bool(_AZURE_API_KEY and _AZURE_ENDPOINT)
     return {
         "ok": True,
         "service": "docextract-mineru-bridge",
         "mineru_key": bool(
             os.getenv("MINERU_API_KEY") or os.getenv("MINERU_TOKEN") or os.getenv("miner_api_key")
         ),
-        "llm_provider": _LLM_PROVIDER,
-        "llm_model": active_model,
+        "llm_provider": "azure",
+        "llm_model": _AZURE_MODEL,
+        "llm_deployment": _AZURE_DEPLOYMENT,
         "llm_ready": llm_ready,
-        "llm_keys": _KIMI.key_count if _LLM_PROVIDER == "kimi" else 1,
-        # legacy fields for UI compat
-        "kimi_keys": _KIMI.key_count,
-        "kimi_model": active_model,
-        "kimi_ready": llm_ready,
-        "gemini_keys": _KIMI.key_count,
-        "gemini_model": active_model,
-        "gemini_ready": llm_ready,
         "pil_available": _PIL_AVAILABLE,
         "tesseract_available": _TESSERACT,
     }
@@ -1736,39 +1612,18 @@ def health() -> dict[str, Any]:
 
 @app.get("/models")
 def list_models() -> dict[str, Any]:
-    """Return available models for the Model Lab UI."""
-    models = [
-        {
-            "id": _KIMI_MODEL,
-            "label": "Kimi K2.5 (Vision)",
-            "note": "HPC-AI — primary model, text + vision",
-            "vision": True, "recommended": True,
-        },
-        {
-            "id": "moonshotai/kimi-k2.5-text",
-            "label": "Kimi K2.5 (Text)",
-            "note": "HPC-AI — text-only, faster",
-            "vision": False, "recommended": False,
-        },
-    ]
-    # Add NVIDIA if key is set
-    nvidia_key = os.getenv("NVIDIA_API_KEY")
-    if nvidia_key:
-        models += [
+    """Return available models (Azure GPT-4o-mini only)."""
+    return {
+        "models": [
             {
-                "id": "microsoft/phi-4-multimodal-instruct",
-                "label": "Phi-4 Multimodal",
-                "note": "NVIDIA NIM — document specialist",
-                "vision": True, "recommended": False,
-            },
-            {
-                "id": "meta/llama-3.3-70b-instruct",
-                "label": "Llama 3.3 70B",
-                "note": "NVIDIA NIM — text only",
-                "vision": False, "recommended": False,
-            },
+                "id": _AZURE_DEPLOYMENT,
+                "label": "GPT-4o Mini (Vision + Text)",
+                "note": "Azure OpenAI Foundry — primary model for tables + visuals",
+                "vision": True,
+                "recommended": True,
+            }
         ]
-    return {"models": models}
+    }
 
 
 @app.post("/tasks")
@@ -1877,7 +1732,7 @@ async def probe_run(body: dict[str, Any]) -> dict[str, Any]:
         elif image_file:
             route  = block.get("route", "UNKNOWN")
             if custom_prompt:
-                raw    = _kimi_vision(image_file, custom_prompt)
+                raw    = _llm_vision(image_file, custom_prompt)
                 result = _parse_llm_json(raw)
                 result["ok"] = True
             else:
@@ -1885,7 +1740,7 @@ async def probe_run(body: dict[str, Any]) -> dict[str, Any]:
         else:
             text   = extract_block_text(block)
             prompt = custom_prompt or f"Summarize this document block:\n{text[:2000]}"
-            raw    = _kimi_text(prompt)
+            raw    = _llm_text(prompt)
             result = _parse_llm_json(raw)
             result["ok"] = True
 

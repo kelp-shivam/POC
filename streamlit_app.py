@@ -4,10 +4,10 @@ DocExtract — Streamlit UI  (Final Production Version)
 Features:
   - Full HTML/PDF viewer (ext/index.html embedded)
   - Real-time pipeline stage progress panel
-  - Enrichment.md tab (table corrections + image summaries)
+  - Final merged document (content + AI corrections inline)
   - Block type distribution chart in sidebar
   - Auto-poll with configurable interval
-  - Model Lab (block-by-block re-extraction with Kimi K2.5 / NVIDIA)
+  - Page range selector (default 20, custom on demand)
   - Heuristic quality check panel with severity colours
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ DEFAULT_ENDPOINT = os.getenv("DOCEXTRACT_BRIDGE_URL", "http://127.0.0.1:8000")
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 st.set_page_config(
-    page_title="DocExtract · MinerU + Kimi K2.5 Pipeline",
+    page_title="DocExtract · MinerU + Azure GPT-4o-mini",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -381,8 +381,8 @@ _STAGE_DEFS = [
     ("waiting_mineru",  "⚙️", "MinerU Processing (OCR + Layout)"),
     ("downloading",     "⬇️", "Downloading Result ZIP"),
     ("fixing_tables",   "🔧", "Fixing Misclassified Tables"),
-    ("enriching_tables","📊", "Enriching Tables (Kimi K2.5)"),
-    ("enriching_visuals","🖼️","Enriching Visuals (Kimi K2.5)"),
+    ("enriching_tables","📊", "Enriching Tables (GPT-4o-mini)"),
+    ("enriching_visuals","🖼️","Enriching Visuals (GPT-4o-mini)"),
     ("enriching",       "✨", "Post-Processing"),
     ("completed",       "✅", "Completed"),
     ("failed",          "❌", "Failed"),
@@ -445,7 +445,7 @@ def render_sidebar() -> None:
                 <div style="font-weight:800;font-size:15px;background:linear-gradient(90deg,#a5b4fc,#c4b5fd,#67e8f9);
                             -webkit-background-clip:text;-webkit-text-fill-color:transparent;">DocExtract</div>
                 <div style="font-size:9.5px;color:#48597a;text-transform:uppercase;letter-spacing:0.06em;">
-                    MinerU · Kimi K2.5 Pipeline
+                    MinerU · Azure GPT-4o-mini
                 </div>
             </div>
         </div>
@@ -453,8 +453,8 @@ def render_sidebar() -> None:
         """, unsafe_allow_html=True)
 
         # ── Pricing Info ──
-        with st.expander("💰 Pricing Comparison (3 Approaches)", expanded=True):
-            pcol1, pcol2, pcol3 = st.columns(3)
+        with st.expander("💰 Pricing: Azure GPT-4o-mini vs Alternatives", expanded=True):
+            pcol1, pcol2 = st.columns(2)
 
             with pcol1:
                 st.markdown("""**LlamaParse**
@@ -464,22 +464,14 @@ def render_sidebar() -> None:
 - No enrichment""")
 
             with pcol2:
-                st.markdown("""**MinerU + GPT-4o mini**
-- Basic enrichment
-- **$0.05** doc
-- **$0.15**/1M in
-- **$0.60**/1M out
-- ~$0.06–$0.10/page""")
-
-            with pcol3:
-                st.markdown("""**MinerU + Kimi K2.5** ⭐
+                st.markdown("""**MinerU + Azure GPT-4o-mini** ⭐ (Current)
 - Full enrichment
 - **$0.05** doc
-- **$0.30**/1M in
-- **$1.50**/1M out
-- ~$0.08–$0.15/page""")
+- **$0.15**/1M input
+- **$0.60**/1M output
+- ~$0.06–$0.12/page""")
 
-            st.info("✓ All processing happens at backend (Render). See 'Summary & Cost' tab for live calculation.")
+            st.info("✓ All processing at backend. Live cost breakdown in 'Summary & Cost' tab.")
 
         # ── Endpoint ──
         st.markdown('<div class="sidebar-title">🔗 Bridge Endpoint</div>', unsafe_allow_html=True)
@@ -491,10 +483,10 @@ def render_sidebar() -> None:
                     r = requests.get(f"{st.session_state.endpoint.rstrip('/')}/health", timeout=5)
                     if r.ok:
                         data = r.json()
-                        keys = data.get("kimi_keys", data.get("gemini_keys", 0))
-                        model = data.get("kimi_model", data.get("gemini_model", "?"))
+                        provider = data.get("llm_provider", "?")
+                        model = data.get("llm_model", "?")
                         st.markdown(
-                            f'<span class="status-pill status-ready">✓ Online · {keys} key(s) · {model}</span>',
+                            f'<span class="status-pill status-ready">✓ {provider.upper()} · {model}</span>',
                             unsafe_allow_html=True,
                         )
                     else:
@@ -513,7 +505,7 @@ def render_sidebar() -> None:
         with col1:
             enable_formula = st.checkbox("∑ Formula", True)
             enable_table   = st.checkbox("⊞ Tables", True)
-            enable_enrichment = st.checkbox("🤖 Enrich (Vision LLM)", True, help="Enable Kimi vision enrichment. Disabling speeds up processing significantly.")
+            enable_enrichment = st.checkbox("🤖 Enrich (Vision LLM)", True, help="Enable Azure GPT-4o-mini enrichment. Disabling speeds up processing.")
         with col2:
             enable_caption = st.checkbox("✨ Captions", True)
             drop_icons     = st.checkbox("🚫 Drop Icons", True)
@@ -838,74 +830,49 @@ def render_enrichment_tab() -> None:
 
         st.divider()
 
-        # Cost comparison with all 3 approaches
-        with st.expander("📊 Cost Comparison: All Approaches", expanded=True):
-            st.markdown("**Document processed: {0} pages | Input: {1:,} tokens | Output: {2:,} tokens**".format(
+        # Cost comparison
+        with st.expander("📊 Cost Comparison: Azure vs Alternatives", expanded=True):
+            st.markdown("**Document: {0} pages | Input: {1:,} tokens | Output: {2:,} tokens**".format(
                 page_count, v.get('input_tokens', 0), v.get('output_tokens', 0)
             ))
 
-            comp_cols = st.columns(3)
+            comp_cols = st.columns(2)
 
-            # Approach 1: LlamaParse (text only)
+            # Alternative: LlamaParse (text only)
             llamaparse_cost_page = 0.0125
             llamaparse_total = llamaparse_cost_page * page_count
             with comp_cols[0]:
-                st.markdown("### 1️⃣ LlamaParse")
+                st.markdown("### Alternative: LlamaParse")
                 st.markdown(f"""
 **Cost:**
 - Per page: **${llamaparse_cost_page:.4f}**
 - Total: **${llamaparse_total:.4f}**
 
-**What you get:**
+**Capabilities:**
 - ✓ Text extraction
-- ✗ No tables
-- ✗ No visual analysis
+- ✗ No tables/visuals
 - ✗ No enrichment
 """)
 
-            # Approach 2: MinerU + GPT-4o-mini (Azure)
-            gpt_cost = 0.15 / 1e6 * v.get('input_tokens', 0) + 0.60 / 1e6 * v.get('output_tokens', 0)
-            gpt_total = 0.05 + gpt_cost
+            # Current: Azure GPT-4o-mini
             with comp_cols[1]:
-                st.markdown("### 2️⃣ MinerU + GPT-4o-mini")
+                st.markdown("### Current: Azure GPT-4o-mini ⭐")
                 st.markdown(f"""
 **Cost:**
 - MinerU: $0.05
-- GPT LLM: **${gpt_cost:.4f}**
-- **Total: ${gpt_total:.4f}**
-- Per page: **${gpt_total/page_count:.4f}**
-
-**What you get:**
-- ✓ Tables + visuals
-- ✓ Basic enrichment
-- ✓ Cheaper LLM
-""")
-
-            # Approach 3: MinerU + Kimi K2.5 (CURRENT)
-            with comp_cols[2]:
-                st.markdown("### 3️⃣ MinerU + Kimi K2.5 ⭐")
-                st.markdown(f"""
-**Cost:**
-- MinerU: $0.05
-- Kimi LLM: **${cost_llm:.4f}**
+- Azure LLM: **${cost_llm:.4f}**
 - **Total: ${cost_total:.4f}**
 - Per page: **${cost_total/page_count:.4f}**
 
-**What you get:**
+**Capabilities:**
 - ✓ Tables + visuals
 - ✓ Full enrichment
-- ✓ Best quality
+- ✓ Enterprise LLM
 """)
 
-            # Summary
-            savings_vs_kimi = cost_total - llamaparse_total
-            savings_vs_gpt = cost_total - gpt_total
-            st.success(f"""
-**Summary:**
-- **LlamaParse** is **${savings_vs_kimi:.4f}** cheaper but text-only (no enrichment)
-- **GPT-4o-mini** is **${savings_vs_gpt:.4f}** cheaper with basic enrichment
-- **Kimi K2.5** (current) provides best-in-class enrichment
-            """)
+            savings = llamaparse_total - cost_total
+            direction = "more" if savings < 0 else "less"
+            st.info(f"💡 Azure costs **${abs(savings):.4f}** {direction} but adds full table + visual enrichment.")
 
         st.divider()
 
