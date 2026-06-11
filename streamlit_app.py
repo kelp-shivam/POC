@@ -41,6 +41,7 @@ import threading as _threading
 _BACKEND_STARTED = False
 
 def _launch_backend() -> None:
+    """Only launch backend if no external URL configured (local dev mode)."""
     global _BACKEND_STARTED
     _BACKEND_STARTED = True
     try:
@@ -51,7 +52,9 @@ def _launch_backend() -> None:
     except Exception:
         pass
 
-if not _BACKEND_STARTED:
+# Only auto-start backend in local dev mode (no external DOCEXTRACT_BRIDGE_URL set)
+_EXTERNAL_BACKEND = bool(os.getenv("DOCEXTRACT_BRIDGE_URL"))
+if not _BACKEND_STARTED and not _EXTERNAL_BACKEND:
     _threading.Thread(target=_launch_backend, daemon=True).start()
 
 # ─────────────────────────────────────────────────────────────────────────────

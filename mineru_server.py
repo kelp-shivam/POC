@@ -130,12 +130,35 @@ _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Kimi / HPC-AI Key Rotator  (rate-limited: 5 req/min per key, round-robin)
+#  LLM Provider Config  (Kimi HPC-AI default, GPT-4o-mini via env override)
+#
+#  To switch to GPT-4o-mini set env vars:
+#    LLM_PROVIDER=openai
+#    OPENAI_API_KEY=sk-...
+#
+#  To use Azure OpenAI Foundry set:
+#    LLM_PROVIDER=azure
+#    AZURE_OPENAI_API_KEY=...
+#    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+#    AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
 # ─────────────────────────────────────────────────────────────────────────────
+_LLM_PROVIDER   = os.getenv("LLM_PROVIDER", "kimi").lower()  # kimi | openai | azure
+
+# Kimi (default)
 _KIMI_BASE_URL  = "https://api.hpc-ai.com/inference/v1"
 _KIMI_MODEL     = "moonshotai/kimi-k2.5"
 _KIMI_RATE_LIMIT = 5    # calls per key per 60 s
 _KIMI_WINDOW     = 60   # seconds
+
+# OpenAI / GPT-4o-mini
+_OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Azure OpenAI Foundry
+_AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
+_AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+_AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+_AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
 
 class KimiKeyRotator:
     """Thread-safe round-robin dispatcher with per-key token-bucket rate limiting."""
@@ -206,58 +229,69 @@ _KIMI = KimiKeyRotator()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Kimi K2.5 API Callers  (HPC-AI OpenAI-compatible endpoint)
+#  Unified LLM Callers  (Kimi | OpenAI | Azure — switchable via LLM_PROVIDER)
 # ─────────────────────────────────────────────────────────────────────────────
-_KIMI_SYSTEM = (
+_LLM_SYSTEM = (
     "You are a precise document data extraction engine. "
     "Output ONLY raw valid JSON — no markdown fences, no commentary, no preamble. "
     "Every response is a single valid JSON object and nothing else."
 )
 
 
+def _get_llm_client() -> tuple[Any, str]:
+    """Return (client, model_name) based on LLM_PROVIDER env var."""
+    if _openai_sdk is None:
+        raise RuntimeError("openai SDK not installed")
+
+    if _LLM_PROVIDER == "azure":
+        client = _openai_sdk.AzureOpenAI(
+            api_key=_AZURE_API_KEY,
+            azure_endpoint=_AZURE_ENDPOINT,
+            api_version=_AZURE_API_VERSION,
+        )
+        return client, _AZURE_DEPLOYMENT
+
+    if _LLM_PROVIDER == "openai":
+        client = _openai_sdk.OpenAI(api_key=_OPENAI_API_KEY)
+        return client, _OPENAI_MODEL
+
+    # Default: Kimi HPC-AI (round-robin key rotation)
+    key = _KIMI.acquire()
+    if not key:
+        raise RuntimeError("No Kimi API keys available")
+    client = _openai_sdk.OpenAI(api_key=key, base_url=_KIMI_BASE_URL)
+    return client, _KIMI_MODEL
+
+
 def _kimi_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
-    """
-    Text-only call to Kimi K2.5 via HPC-AI (Chat Completions API).
-    Uses round-robin rate-limited keys. Optionally charges token usage to a ledger.
-    """
+    """Text-only LLM call. Provider selected by LLM_PROVIDER env var."""
     if _openai_sdk is None:
         return None
 
-    last_error = None
     for attempt in range(max_retries):
-        key = _KIMI.acquire()
-        if not key:
-            return None
         try:
-            client = _openai_sdk.OpenAI(api_key=key, base_url=_KIMI_BASE_URL)
+            client, model = _get_llm_client()
             resp = client.chat.completions.create(
-                model=_KIMI_MODEL,
+                model=model,
                 messages=[
-                    {"role": "system", "content": _KIMI_SYSTEM},
+                    {"role": "system", "content": _LLM_SYSTEM},
                     {"role": "user",   "content": prompt},
                 ],
                 max_tokens=2048,
                 temperature=0.0,
                 timeout=90,
             )
-            # Capture token usage for cost tracking
             if _ledger is not None and resp.usage:
-                _charge_ledger(
-                    _ledger,
+                _charge_ledger(_ledger,
                     in_tok=resp.usage.prompt_tokens or 0,
                     out_tok=resp.usage.completion_tokens or 0,
                 )
             content = resp.choices[0].message.content
             if content:
                 return content.strip()
-            else:
-                last_error = "empty_content"
-                # Retry if content is empty
-                if attempt < max_retries - 1:
-                    time.sleep(1.0)
-                continue
+            if attempt < max_retries - 1:
+                time.sleep(1.0)
         except Exception as exc:
-            last_error = str(exc)
             err = str(exc)
             if "429" in err or "rate" in err.lower():
                 time.sleep(2 ** attempt + 1)
@@ -267,23 +301,20 @@ def _kimi_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -
 
 
 def _kimi_vision(image_path: Path, prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
-    """Vision call (image + text) to Kimi K2.5 via HPC-AI. Optionally charges usage to a ledger."""
+    """Vision LLM call. Provider selected by LLM_PROVIDER env var."""
     if _openai_sdk is None:
         return None
     mime      = mimetypes.guess_type(str(image_path))[0] or "image/png"
     encoded   = base64.b64encode(image_path.read_bytes()).decode("ascii")
     image_url = f"data:{mime};base64,{encoded}"
+
     for attempt in range(max_retries):
-        key = _KIMI.acquire()
-        if not key:
-            return None
         try:
-            client = _openai_sdk.OpenAI(api_key=key, base_url=_KIMI_BASE_URL)
+            client, model = _get_llm_client()
             resp = client.chat.completions.create(
-                model=_KIMI_MODEL,
+                model=model,
                 messages=[{
-                    "role": "system",
-                    "content": _KIMI_SYSTEM,
+                    "role": "system", "content": _LLM_SYSTEM,
                 }, {
                     "role": "user",
                     "content": [
@@ -295,10 +326,8 @@ def _kimi_vision(image_path: Path, prompt: str, max_retries: int = 3, _ledger: d
                 temperature=0.0,
                 timeout=120,
             )
-            # Capture token usage for cost tracking
             if _ledger is not None and resp.usage:
-                _charge_ledger(
-                    _ledger,
+                _charge_ledger(_ledger,
                     in_tok=resp.usage.prompt_tokens or 0,
                     out_tok=resp.usage.completion_tokens or 0,
                 )
@@ -313,7 +342,7 @@ def _kimi_vision(image_path: Path, prompt: str, max_retries: int = 3, _ledger: d
     return None
 
 
-# Aliases so existing call-sites keep working without renaming
+# Aliases — existing call-sites unchanged
 _gemini_text   = _kimi_text
 _gemini_vision = _kimi_vision
 
@@ -1568,18 +1597,33 @@ def serve_ui() -> HTMLResponse:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    llm_ready = (
+        (_LLM_PROVIDER == "kimi" and _KIMI.available)
+        or (_LLM_PROVIDER == "openai" and bool(_OPENAI_API_KEY))
+        or (_LLM_PROVIDER == "azure" and bool(_AZURE_API_KEY) and bool(_AZURE_ENDPOINT))
+    )
+    active_model = (
+        _OPENAI_MODEL if _LLM_PROVIDER == "openai"
+        else _AZURE_DEPLOYMENT if _LLM_PROVIDER == "azure"
+        else _KIMI_MODEL
+    )
     return {
         "ok": True,
         "service": "docextract-mineru-bridge",
         "mineru_key": bool(
             os.getenv("MINERU_API_KEY") or os.getenv("MINERU_TOKEN") or os.getenv("miner_api_key")
         ),
-        "gemini_keys": _KIMI.key_count,   # field name kept for UI compat
-        "gemini_model": _KIMI_MODEL,       # field name kept for UI compat
-        "gemini_ready": _KIMI.available,
+        "llm_provider": _LLM_PROVIDER,
+        "llm_model": active_model,
+        "llm_ready": llm_ready,
+        "llm_keys": _KIMI.key_count if _LLM_PROVIDER == "kimi" else 1,
+        # legacy fields for UI compat
         "kimi_keys": _KIMI.key_count,
-        "kimi_model": _KIMI_MODEL,
-        "kimi_ready": _KIMI.available,
+        "kimi_model": active_model,
+        "kimi_ready": llm_ready,
+        "gemini_keys": _KIMI.key_count,
+        "gemini_model": active_model,
+        "gemini_ready": llm_ready,
         "pil_available": _PIL_AVAILABLE,
         "tesseract_available": _TESSERACT,
     }

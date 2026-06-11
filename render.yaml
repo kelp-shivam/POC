@@ -7,8 +7,6 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python -m uvicorn mineru_server:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PORT
-        value: 8000
       - key: MINERU_API_KEY
         sync: false
       - key: api_key_1
@@ -19,14 +17,30 @@ services:
         sync: false
       - key: api_key_4
         sync: false
+      - key: LLM_PROVIDER
+        value: kimi
+      # To switch to GPT-4o-mini, set LLM_PROVIDER=openai and OPENAI_API_KEY
+      # - key: LLM_PROVIDER
+      #   value: openai
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # To use Azure Foundry:
+      # - key: LLM_PROVIDER
+      #   value: azure
+      # - key: AZURE_OPENAI_API_KEY
+      #   sync: false
+      # - key: AZURE_OPENAI_ENDPOINT
+      #   sync: false
+      # - key: AZURE_OPENAI_DEPLOYMENT
+      #   value: gpt-4o-mini
 
   # Frontend (Streamlit)
   - type: web
     name: docextract-frontend
     env: python
     plan: free
-    buildCommand: pip install -r requirements-streamlit.txt
-    startCommand: streamlit run streamlit_cloud_app.py --server.port=$PORT --server.address=0.0.0.0
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0
     envVars:
-      - key: DOCEXTRACT_BACKEND_URL
+      - key: DOCEXTRACT_BRIDGE_URL
         sync: false
