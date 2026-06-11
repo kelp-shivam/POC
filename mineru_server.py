@@ -383,13 +383,15 @@ def extract_with_azure_di(pdf_bytes: bytes) -> dict[str, Any] | None:
         result = poller.result()
         print(f"[Azure DI] Analysis complete ✓")
 
-        # Convert to markdown
+        # Convert to markdown - simple approach: just concatenate all paragraphs
         markdown_lines = []
-        for page_num, page in enumerate(result.pages, 1):
-            markdown_lines.append(f"# Page {page_num}\n")
+        if result.pages:
+            for page_num, page in enumerate(result.pages, 1):
+                markdown_lines.append(f"# Page {page_num}\n")
+
+        if result.paragraphs:
             for para in result.paragraphs:
-                if para.spans[0].page == page_num - 1:
-                    markdown_lines.append(para.content + "\n")
+                markdown_lines.append(para.content + "\n")
 
         return {
             "markdown": "\n".join(markdown_lines),
