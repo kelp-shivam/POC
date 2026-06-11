@@ -10,3 +10,4 @@ python-dotenv
 openai
 pandas
 nest-asyncio
+llama-cloud

@@ -192,52 +192,45 @@ _AZURE_OPENAI_AVAILABLE = bool(_AZURE_ENDPOINT and (_AZURE_API_KEY or (_AZURE_TE
 #  Extraction Methods
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = None) -> dict[str, Any] | None:
-    """Extract PDF with LlamaIndex Cloud API (agentic tier). Polls job and saves result."""
+    """Extract PDF with LlamaCloud SDK (agentic tier). Saves result to output_dir."""
     try:
-        import base64
-        import requests
+        import asyncio
+        from io import BytesIO
+        from llama_cloud import AsyncLlamaCloud
 
-        # Step 1: Submit file to LlamaIndex Cloud
-        url = "https://api.cloud.llamaindex.ai/api/v2/parse"
-        headers = {
-            "Authorization": f"Bearer {_LLAMAPARSE_API_KEY}",
-            "Content-Type": "application/json",
-        }
+        async def _parse():
+            client = AsyncLlamaCloud(api_key=_LLAMAPARSE_API_KEY)
 
-        # Encode PDF as base64
-        pdf_base64 = base64.b64encode(pdf_bytes).decode()
-        payload = {
-            "file": pdf_base64,
-            "file_ext": "pdf",
-            "tier": "agentic",  # Use agentic (not fast)
-            "output_format": "markdown",
-            "version": "latest",
-        }
+            # Step 1: Upload file
+            file_obj = await client.files.create(
+                file=BytesIO(pdf_bytes),
+                filename="document.pdf",
+                purpose="parse",
+            )
 
-        submit_resp = requests.post(url, json=payload, headers=headers, timeout=30)
-        if submit_resp.status_code != 200:
-            return None
+            # Step 2: Parse with agentic tier
+            result = await client.parsing.parse(
+                file_id=file_obj.id,
+                tier="agentic",
+                expand=["markdown_full"],
+            )
 
-        job_id = submit_resp.json().get("id")
-        if not job_id:
-            return None
+            # Step 3: Save output if dir provided
+            if output_dir:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                md_file = output_dir / "llamacloud_output.md"
+                md_file.write_text(result.markdown_full or "", encoding="utf-8")
 
-        # Step 2: Poll for result (max 300s = 5min for agentic)
-        poll_url = f"https://api.cloud.llamaindex.ai/api/v2/parse/{job_id}"
-        for attempt in range(60):
-            poll_resp = requests.get(poll_url, headers=headers, timeout=10)
-            if poll_resp.status_code == 200:
-                result = poll_resp.json()
-                if result.get("status") == "SUCCESS":
-                    # Save markdown if output_dir provided
-                    if output_dir:
-                        output_dir.mkdir(parents=True, exist_ok=True)
-                        md_file = output_dir / "llamaparse_output.md"
-                        md_file.write_text(result.get("markdown", ""), encoding="utf-8")
-                    return result
-            time.sleep(5)  # Poll every 5s for agentic
+            return {
+                "markdown": result.markdown_full or "",
+                "pages": len((result.markdown_full or "").split("\n# Page")),
+            }
 
-        return None
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(_parse())
+
     except Exception as e:
         return None
 
