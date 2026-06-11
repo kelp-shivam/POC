@@ -262,6 +262,41 @@ def _convert_html_tables_in_markdown(markdown_text: str) -> str:
     return re.sub(table_pattern, replace_table, markdown_text, flags=re.DOTALL | re.IGNORECASE)
 
 
+def _count_pages_from_content_list(extract_dir: Path) -> int:
+    """Count actual pages from MinerU content_list JSON."""
+    try:
+        import json
+        content_path = (
+            next(extract_dir.rglob("*content_list_v2.json"), None)
+            or next(extract_dir.rglob("*content_list*.json"), None)
+        )
+        if not content_path:
+            return 0
+
+        with open(content_path) as f:
+            data = json.load(f)
+
+        # Find max page number from blocks
+        max_page = 0
+        def find_max_page(obj):
+            nonlocal max_page
+            if isinstance(obj, dict):
+                if "page_idx" in obj:
+                    max_page = max(max_page, obj["page_idx"] + 1)
+                if "page_number" in obj:
+                    max_page = max(max_page, obj["page_number"])
+                for v in obj.values():
+                    find_max_page(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    find_max_page(item)
+
+        find_max_page(data)
+        return max(1, max_page)  # At least 1 page
+    except Exception:
+        return 0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Extraction Methods
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2029,7 +2064,10 @@ async def extract_mineru_azure(
         content = md_file.read_text(encoding="utf-8", errors="ignore") if md_file else ""
         # Convert HTML tables to markdown tables
         content = _convert_html_tables_in_markdown(content)
-        page_count = len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
+        # Count pages from content_list JSON (more reliable than markdown markers)
+        page_count = _count_pages_from_content_list(extract_dir) or (
+            len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
+        )
 
         return {
             "status": "success",
@@ -2078,7 +2116,10 @@ async def extract_mineru_raw(
         content = md_file.read_text(encoding="utf-8", errors="ignore") if md_file else ""
         # Convert HTML tables to markdown tables
         content = _convert_html_tables_in_markdown(content)
-        page_count = len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
+        # Count pages from content_list JSON (more reliable than markdown markers)
+        page_count = _count_pages_from_content_list(extract_dir) or (
+            len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
+        )
 
         return {
             "status": "success",
