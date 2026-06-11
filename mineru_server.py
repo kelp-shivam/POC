@@ -178,7 +178,7 @@ if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
 # 3. Azure OpenAI Foundry (enrichment - optional)
 _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-_AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
+_AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
 _AZURE_MODEL        = "gpt-4o-mini"
 
 # Auth: API key OR service principal
