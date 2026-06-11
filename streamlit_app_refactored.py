@@ -236,7 +236,7 @@ if st.session_state.compare_result:
     # Row 2
     cols = st.columns(2)
     with cols[0]:
-        st.subheader("🔷 MinerU + Azure")
+        st.subheader("🔷 MinerU + OpenAI")
         data = result.get("mineru_azure", {})
         if data and data.get("status") == "success":
             with st.container(border=True):

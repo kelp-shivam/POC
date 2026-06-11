@@ -475,7 +475,7 @@ def render_sidebar() -> None:
 - No enrichment""")
 
             with pcol2:
-                st.markdown("""**MinerU + Azure GPT-4o-mini** ⭐ (Current)
+                st.markdown("""**MinerU +  GPT-4o-mini** ⭐ (Current)
 - Full enrichment
 - **$0.05** doc
 - **$0.15**/1M input
@@ -1309,7 +1309,7 @@ def main() -> None:
         methods_info = [
             ("🦙 LlamaParse", "llamaparse", "$0.0125/page"),
             ("📋 Azure DI", "azure_di", "Pay-per-page"),
-            ("🔷 MinerU + Azure", "mineru_azure", "$0.05 + LLM"),
+            ("🔷 MinerU + OpenAI", "mineru_azure", "$0.05 + LLM"),
             ("⚙️ MinerU Raw", "mineru_raw", "$0.05"),
         ]
 

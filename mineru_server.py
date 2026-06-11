@@ -1743,15 +1743,21 @@ def enrich_zip_with_llm(zip_path: Path, task_dir: Path, task: dict[str, Any]) ->
         raw_md      = md_path.read_text(encoding="utf-8", errors="ignore")
         # Create comprehensive merged markdown with all enrichments inline
         merged_md = merge_all_enrichments_into_md(raw_md, table_enrichments, visual_enrichments)
+        # Convert HTML tables to markdown
+        merged_md = _convert_html_tables_in_markdown(merged_md)
         (extract_dir / "final_merged.md").write_text(merged_md, encoding="utf-8")
         # Keep legacy full_enriched.md for backwards compat
         enriched_md = merge_visuals_into_md(raw_md, visual_enrichments)
+        # Convert HTML tables to markdown
+        enriched_md = _convert_html_tables_in_markdown(enriched_md)
         (extract_dir / "full_enriched.md").write_text(enriched_md, encoding="utf-8")
 
     # ── Step 9: Build enrichment.md ─────────────────────────────────────────
     enrichment_md = build_enrichment_md(
         blocks, visual_enrichments, table_enrichments, checks, ledger
     )
+    # Convert HTML tables to markdown in enrichment output
+    enrichment_md = _convert_html_tables_in_markdown(enrichment_md)
     (extract_dir / "enrichment.md").write_text(enrichment_md, encoding="utf-8")
 
     # Visual summaries markdown (legacy)
