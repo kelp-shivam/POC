@@ -356,24 +356,32 @@ async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = No
 
 def extract_with_azure_di(pdf_bytes: bytes) -> dict[str, Any] | None:
     """Extract PDF with Azure Document Intelligence."""
+    print(f"[Azure DI] Starting extraction...")
+    print(f"[Azure DI] Endpoint: {_AZURE_DI_ENDPOINT[:50]}...")
+    print(f"[Azure DI] Key loaded: {'✓' if _AZURE_DI_KEY else '✗'}")
     try:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
         from azure.core.credentials import AzureKeyCredential
 
+        print(f"[Azure DI] Creating client...")
         client = DocumentIntelligenceClient(
             endpoint=_AZURE_DI_ENDPOINT,
             credential=AzureKeyCredential(_AZURE_DI_KEY),
         )
+        print(f"[Azure DI] Client created ✓")
 
         # Use prebuilt model or custom model if project set
         model_id = f"projects/{_AZURE_DI_PROJECT}/models/latest" if _AZURE_DI_PROJECT else "prebuilt-layout"
+        print(f"[Azure DI] Using model: {model_id}")
+        print(f"[Azure DI] Analyzing document ({len(pdf_bytes)} bytes)...")
 
         poller = client.begin_analyze_document(
             model_id=model_id,
-            document=pdf_bytes,
-            content_type="application/pdf",
+            body=pdf_bytes,
         )
+        print(f"[Azure DI] Waiting for result...")
         result = poller.result()
+        print(f"[Azure DI] Analysis complete ✓")
 
         # Convert to markdown
         markdown_lines = []
@@ -388,7 +396,10 @@ def extract_with_azure_di(pdf_bytes: bytes) -> dict[str, Any] | None:
             "pages": len(result.pages),
             "raw": result,
         }
-    except Exception:
+    except Exception as e:
+        print(f"Azure DI error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
