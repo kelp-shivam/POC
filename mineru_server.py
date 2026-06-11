@@ -1757,7 +1757,7 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
             enable_formula=True,
             enable_table=True,
             language="en",
-            is_ocr=False,
+            is_ocr=True,
             page_ranges=None,
         )
         zip_url = poll_mineru_batch(batch_id, {})
@@ -1802,7 +1802,7 @@ async def submit_task(
     enable_formula: str = Form("true"),
     enable_table:  str  = Form("true"),
     language:      str  = Form("en"),
-    is_ocr:        str  = Form("false"),
+    is_ocr:        str  = Form("true"),
     page_ranges:   str  = Form(""),
     enable_enrichment: str = Form("true"),
 ) -> dict[str, Any]:

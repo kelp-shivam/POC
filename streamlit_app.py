@@ -512,7 +512,7 @@ def render_sidebar() -> None:
             drop_icons     = st.checkbox("🚫 Drop Icons", True)
 
         language = st.text_input("Language", "en")
-        is_ocr   = st.checkbox("Force OCR", False)
+        is_ocr   = st.checkbox("🔤 OCR", True, help="Always enabled for best text extraction")
 
         # Page range selector
         st.markdown('<div class="sidebar-title">📄 Page Range</div>', unsafe_allow_html=True)
