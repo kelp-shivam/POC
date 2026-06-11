@@ -1793,6 +1793,130 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
     return results
 
 
+@app.post("/extract/llamaparse")
+async def extract_llamaparse(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extract PDF with LlamaParse only."""
+    if not _LLAMAPARSE_API_KEY:
+        return {"status": "error", "message": "LlamaParse API key not configured"}
+    pdf_bytes = await file.read()
+    result = extract_with_llamaparse(pdf_bytes)
+    if result:
+        return {
+            "status": "success",
+            "method": "LlamaParse",
+            "markdown": result.get("markdown", ""),
+            "pages": len(result.get("markdown", "").split("---")) if result.get("markdown") else 0,
+            "cost": 0.0125 * (len(result.get("markdown", "").split("---")) if result.get("markdown") else 0),
+        }
+    return {"status": "error", "message": "LlamaParse extraction failed"}
+
+
+@app.post("/extract/azure-di")
+async def extract_azure_di(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extract PDF with Azure Document Intelligence only."""
+    if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
+        return {"status": "error", "message": "Azure DI credentials not configured"}
+    pdf_bytes = await file.read()
+    result = extract_with_azure_di(pdf_bytes)
+    if result:
+        return {
+            "status": "success",
+            "method": "Azure Document Intelligence",
+            "markdown": result.get("markdown", ""),
+            "pages": result.get("pages", 0),
+            "cost": "Pay-per-page",
+        }
+    return {"status": "error", "message": "Azure DI extraction failed"}
+
+
+@app.post("/extract/mineru-azure")
+async def extract_mineru_azure(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extract PDF with MinerU + Azure OpenAI enrichment."""
+    pdf_bytes = await file.read()
+    task_id = str(uuid.uuid4())
+    task_dir = Path(tempfile.gettempdir()) / "extract_mineru_azure" / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = task_dir / file.filename
+    pdf_path.write_bytes(pdf_bytes)
+
+    try:
+        batch_id = submit_local_file_to_mineru(
+            pdf_path,
+            model_version="vlm",
+            enable_formula=True,
+            enable_table=True,
+            language="en",
+            is_ocr=True,
+            page_ranges=None,
+        )
+        zip_url = poll_mineru_batch(batch_id, {})
+        raw_zip = task_dir / "mineru.zip"
+        download_zip(zip_url, raw_zip)
+
+        extract_dir = task_dir / "extract"
+        extract_dir.mkdir(exist_ok=True)
+        with zipfile.ZipFile(raw_zip) as zf:
+            zf.extractall(extract_dir)
+
+        md_file = next(extract_dir.rglob("full.md"), None)
+        content = md_file.read_text(encoding="utf-8", errors="ignore") if md_file else ""
+        page_count = len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
+
+        return {
+            "status": "success",
+            "method": "MinerU + Azure OpenAI (Enriched)",
+            "markdown": content,
+            "pages": page_count,
+            "cost": "$0.05 + LLM",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/extract/mineru-raw")
+async def extract_mineru_raw(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extract PDF with MinerU only (no enrichment)."""
+    pdf_bytes = await file.read()
+    task_id = str(uuid.uuid4())
+    task_dir = Path(tempfile.gettempdir()) / "extract_mineru_raw" / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = task_dir / file.filename
+    pdf_path.write_bytes(pdf_bytes)
+
+    try:
+        batch_id = submit_local_file_to_mineru(
+            pdf_path,
+            model_version="vlm",
+            enable_formula=True,
+            enable_table=True,
+            language="en",
+            is_ocr=True,
+            page_ranges=None,
+        )
+        zip_url = poll_mineru_batch(batch_id, {})
+        raw_zip = task_dir / "mineru.zip"
+        download_zip(zip_url, raw_zip)
+
+        extract_dir = task_dir / "extract"
+        extract_dir.mkdir(exist_ok=True)
+        with zipfile.ZipFile(raw_zip) as zf:
+            zf.extractall(extract_dir)
+
+        md_file = next(extract_dir.rglob("full.md"), None)
+        content = md_file.read_text(encoding="utf-8", errors="ignore") if md_file else ""
+        page_count = len([l for l in content.split("\n") if l.startswith("# Page")]) if content else 0
+
+        return {
+            "status": "success",
+            "method": "MinerU Raw (Layout Only)",
+            "markdown": content,
+            "pages": page_count,
+            "cost": "$0.05",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.post("/tasks")
 async def submit_task(
     background_tasks: BackgroundTasks,

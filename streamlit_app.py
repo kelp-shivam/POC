@@ -207,6 +207,7 @@ def init_state() -> None:
         "poll_interval":    10,
         "last_poll_time":   0.0,
         "compare_result":   None,
+        "extract_result":   None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -552,26 +553,52 @@ def render_sidebar() -> None:
 
         st.markdown('<hr style="border:none;border-top:1px solid rgba(80,100,200,0.10);margin:10px 0;">', unsafe_allow_html=True)
 
-        # ── Compare Approaches ──
-        st.markdown('<div class="sidebar-title">🔄 Compare Approaches</div>', unsafe_allow_html=True)
-        compare_pdf = st.file_uploader("PDF for comparison", type=["pdf"], key="compare_uploader", label_visibility="collapsed")
-        if st.button("⚖️ Compare All 4 Methods", type="secondary", disabled=compare_pdf is None):
-            if compare_pdf:
+        # ── Extract by Method ──
+        st.markdown('<div class="sidebar-title">🎯 Extract by Method</div>', unsafe_allow_html=True)
+        method_pdf = st.file_uploader("PDF for extraction", type=["pdf"], key="method_uploader", label_visibility="collapsed")
+
+        method = st.radio(
+            "Choose method:",
+            ["All 4 (Compare)", "LlamaParse Only", "Azure DI Only", "MinerU + Azure", "MinerU Raw"],
+            index=0,
+            horizontal=False
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📤 Extract", type="secondary", disabled=method_pdf is None):
+                if method_pdf:
+                    endpoint_map = {
+                        "All 4 (Compare)": "/compare",
+                        "LlamaParse Only": "/extract/llamaparse",
+                        "Azure DI Only": "/extract/azure-di",
+                        "MinerU + Azure": "/extract/mineru-azure",
+                        "MinerU Raw": "/extract/mineru-raw",
+                    }
+                    endpoint = endpoint_map[method]
+                    with st.spinner(f"Extracting with {method}..."):
+                        try:
+                            resp = requests.post(
+                                f"{st.session_state.endpoint.rstrip('/')}{endpoint}",
+                                files={"file": method_pdf.getvalue()},
+                                timeout=300,
+                            )
+                            if resp.status_code == 200:
+                                if method == "All 4 (Compare)":
+                                    st.session_state.compare_result = resp.json()
+                                else:
+                                    st.session_state.extract_result = resp.json()
+                                st.success(f"✅ {method} complete!")
+                            else:
+                                st.error(f"Extraction failed: HTTP {resp.status_code}")
+                        except Exception as e:
+                            st.error(f"Extraction error: {e}")
+
+        with col2:
+            if st.button("🗑️ Clear", type="tertiary"):
                 st.session_state.compare_result = None
-                with st.spinner("Extracting with all 3 methods..."):
-                    try:
-                        resp = requests.post(
-                            f"{st.session_state.endpoint.rstrip('/')}/compare",
-                            files={"file": compare_pdf.getvalue()},
-                            timeout=300,
-                        )
-                        if resp.status_code == 200:
-                            st.session_state.compare_result = resp.json()
-                            st.success("✅ Comparison complete!")
-                        else:
-                            st.error(f"Comparison failed: HTTP {resp.status_code}")
-                    except Exception as e:
-                        st.error(f"Comparison error: {e}")
+                st.session_state.extract_result = None
+                st.rerun()
 
         st.markdown('<hr style="border:none;border-top:1px solid rgba(80,100,200,0.10);margin:10px 0;">', unsafe_allow_html=True)
 
@@ -1235,6 +1262,30 @@ def main() -> None:
     layout_pdf_b64: str | None = None
     if st.session_state.layout_pdf_bytes:
         layout_pdf_b64 = base64.b64encode(st.session_state.layout_pdf_bytes).decode("ascii")
+
+    # Show single extraction result
+    if st.session_state.get("extract_result"):
+        st.divider()
+        result = st.session_state.extract_result
+        if result.get("status") == "success":
+            st.markdown(f"## {result.get('method', 'Extraction')} Results")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Pages", result.get('pages', 'N/A'))
+            with col2:
+                st.metric("Cost", result.get('cost', 'N/A'))
+            with col3:
+                st.download_button(
+                    "📥 Download Markdown",
+                    result.get('markdown', ''),
+                    f"{result.get('method', 'extraction')}.md",
+                    "text/markdown"
+                )
+            with st.expander("📄 View Markdown"):
+                st.markdown(result.get('markdown', ''))
+        else:
+            st.error(f"❌ Error: {result.get('message', 'Unknown error')}")
+        st.divider()
 
     # Show comparison results if available
     if st.session_state.get("compare_result"):
