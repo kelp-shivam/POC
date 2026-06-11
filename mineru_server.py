@@ -191,45 +191,38 @@ _AZURE_OPENAI_AVAILABLE = bool(_AZURE_ENDPOINT and (_AZURE_API_KEY or (_AZURE_TE
 # ─────────────────────────────────────────────────────────────────────────────
 #  Extraction Methods
 # ─────────────────────────────────────────────────────────────────────────────
-def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = None) -> dict[str, Any] | None:
+async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = None) -> dict[str, Any] | None:
     """Extract PDF with LlamaCloud SDK (agentic tier). Saves result to output_dir."""
     try:
-        import asyncio
         from io import BytesIO
         from llama_cloud import AsyncLlamaCloud
 
-        async def _parse():
-            client = AsyncLlamaCloud(api_key=_LLAMAPARSE_API_KEY)
+        client = AsyncLlamaCloud(api_key=_LLAMAPARSE_API_KEY)
 
-            # Step 1: Upload file
-            file_obj = await client.files.create(
-                file=BytesIO(pdf_bytes),
-                filename="document.pdf",
-                purpose="parse",
-            )
+        # Step 1: Upload file
+        file_obj = await client.files.create(
+            file=BytesIO(pdf_bytes),
+            filename="document.pdf",
+            purpose="parse",
+        )
 
-            # Step 2: Parse with agentic tier
-            result = await client.parsing.parse(
-                file_id=file_obj.id,
-                tier="agentic",
-                expand=["markdown_full"],
-            )
+        # Step 2: Parse with agentic tier
+        result = await client.parsing.parse(
+            file_id=file_obj.id,
+            tier="agentic",
+            expand=["markdown_full"],
+        )
 
-            # Step 3: Save output if dir provided
-            if output_dir:
-                output_dir.mkdir(parents=True, exist_ok=True)
-                md_file = output_dir / "llamacloud_output.md"
-                md_file.write_text(result.markdown_full or "", encoding="utf-8")
+        # Step 3: Save output if dir provided
+        if output_dir:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            md_file = output_dir / "llamacloud_output.md"
+            md_file.write_text(result.markdown_full or "", encoding="utf-8")
 
-            return {
-                "markdown": result.markdown_full or "",
-                "pages": len((result.markdown_full or "").split("\n# Page")),
-            }
-
-        # Run async function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_parse())
+        return {
+            "markdown": result.markdown_full or "",
+            "pages": len((result.markdown_full or "").split("\n# Page")),
+        }
 
     except Exception as e:
         return None
@@ -1878,7 +1871,7 @@ async def extract_llamaparse(
     task_dir = Path(tempfile.gettempdir()) / "llamaparse_results" / str(uuid.uuid4())
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    result = extract_with_llamaparse(pdf_bytes, output_dir=task_dir)
+    result = await extract_with_llamaparse(pdf_bytes, output_dir=task_dir)
     if result:
         markdown = result.get("markdown", "")
         pages = len(markdown.split("\n# Page")) if markdown else 0
