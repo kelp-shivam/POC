@@ -140,6 +140,7 @@ _CONTEXT_WINDOW       = 3           # blocks before/after for context
 # Azure OpenAI Foundry GPT-4o-mini pricing (per 1M tokens)
 _COST_PER_1M_IN     = 0.15   # $0.15 / 1M input tokens
 _COST_PER_1M_OUT    = 0.60   # $0.60 / 1M output tokens
+_COST_PER_1M_CACHED = 0.075  # $0.075 / 1M cached tokens (50% discount)
 
 _DATA_WORDS = re.compile(
     r"\b(figure|fig|chart|graph|plot|trend|distribution|comparison|"
@@ -407,17 +408,13 @@ def _get_llm_client() -> tuple[Any, str]:
             azure_endpoint=_AZURE_ENDPOINT,
             api_version=_AZURE_API_VERSION,
         )
-    # Auth option 2: Service principal
+    # Auth option 2: Service principal (via EnvironmentCredential)
     elif _AZURE_TENANT_ID and _AZURE_CLIENT_ID and _AZURE_CLIENT_SECRET:
-        from azure.identity import ClientSecretCredential
-        credential = ClientSecretCredential(
-            tenant_id=_AZURE_TENANT_ID,
-            client_id=_AZURE_CLIENT_ID,
-            client_secret=_AZURE_CLIENT_SECRET,
-        )
+        from azure.identity import EnvironmentCredential
+        credential = EnvironmentCredential()
         client = _openai_sdk.AzureOpenAI(
             azure_endpoint=_AZURE_ENDPOINT,
-            azure_ad_token_provider=credential.get_token,
+            azure_ad_token_provider=lambda: credential.get_token("https://cognitiveservices.azure.com/.default").token,
             api_version=_AZURE_API_VERSION,
         )
     else:
