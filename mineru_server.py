@@ -420,39 +420,59 @@ _LLM_SYSTEM = (
 
 def _get_llm_client() -> tuple[Any, str]:
     """Return Azure OpenAI Foundry client (GPT-4o-mini). Auth: API key or service principal."""
+    import os as _os
+    from pathlib import Path as _PathLocal
+
+    # Reload .env to ensure fresh credentials
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _load_dotenv(_PathLocal(__file__).parent / ".env", override=True)
+    except:
+        pass
+
+    _api_key = _os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+    _tenant = _os.getenv("AZURE_TENANT_ID", "").strip()
+    _client_id = _os.getenv("AZURE_CLIENT_ID", "").strip()
+    _client_secret = _os.getenv("AZURE_CLIENT_SECRET", "").strip()
+    _endpoint = _os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+
     if _openai_sdk is None:
         raise RuntimeError("openai SDK not installed")
 
     # Auth option 1: API key
-    if _AZURE_API_KEY:
+    if _api_key:
         client = _openai_sdk.AzureOpenAI(
-            api_key=_AZURE_API_KEY,
-            azure_endpoint=_AZURE_ENDPOINT,
-            api_version=_AZURE_API_VERSION,
+            api_key=_api_key,
+            azure_endpoint=_endpoint,
+            api_version="2024-05-01-preview",
         )
-    # Auth option 2: Service principal (via EnvironmentCredential)
-    elif _AZURE_TENANT_ID and _AZURE_CLIENT_ID and _AZURE_CLIENT_SECRET:
+    # Auth option 2: Service principal (via EnvironmentCredential - matches test_direct.py)
+    elif _tenant and _client_id and _client_secret:
         from azure.identity import EnvironmentCredential
         credential = EnvironmentCredential()
         client = _openai_sdk.AzureOpenAI(
-            azure_endpoint=_AZURE_ENDPOINT,
+            azure_endpoint=_endpoint,
             azure_ad_token_provider=lambda: credential.get_token("https://cognitiveservices.azure.com/.default").token,
-            api_version=_AZURE_API_VERSION,
+            api_version="2024-05-01-preview",
         )
     else:
         raise RuntimeError("No Azure OpenAI auth: need API_KEY or (TENANT_ID + CLIENT_ID + CLIENT_SECRET)")
 
-    return client, _AZURE_DEPLOYMENT
+    return client, _os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 
 
 def _llm_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) -> str | None:
     """Text-only LLM call. Provider selected by LLM_PROVIDER env var."""
     if _openai_sdk is None:
+        print("[LLM] openai SDK is None!")
         return None
 
+    print(f"[LLM] Starting text call (retries={max_retries})...")
     for attempt in range(max_retries):
         try:
+            print(f"[LLM] Attempt {attempt+1}/{max_retries}...")
             client, model = _get_llm_client()
+            print(f"[LLM] Client ready, calling chat.completions...")
             resp = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -470,15 +490,18 @@ def _llm_text(prompt: str, max_retries: int = 3, _ledger: dict | None = None) ->
                 )
             content = resp.choices[0].message.content
             if content:
+                print(f"[LLM] Success! Got response: {content[:50]}...")
                 return content.strip()
             if attempt < max_retries - 1:
                 time.sleep(1.0)
         except Exception as exc:
             err = str(exc)
+            print(f"[LLM] Attempt {attempt+1} failed: {type(exc).__name__}: {err[:100]}")
             if "429" in err or "rate" in err.lower():
                 time.sleep(2 ** attempt + 1)
             elif attempt < max_retries - 1:
                 time.sleep(1.5 ** attempt)
+    print(f"[LLM] All {max_retries} attempts failed - returning None")
     return None
 
 
