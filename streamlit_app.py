@@ -1293,57 +1293,147 @@ def main() -> None:
         st.markdown("## 🔄 Extraction Comparison: All 4 Methods")
         result = st.session_state.compare_result
 
-        comp_cols = st.columns(2)
+        # Method info cards in summary row
+        summary_cols = st.columns(4)
+        methods_info = [
+            ("🦙 LlamaParse", "llamaparse", "$0.0125/page"),
+            ("📋 Azure DI", "azure_di", "Pay-per-page"),
+            ("🔷 MinerU + Azure", "mineru_azure", "$0.05 + LLM"),
+            ("⚙️ MinerU Raw", "mineru_raw", "$0.05"),
+        ]
 
-        # Row 1: LlamaParse | Azure DI
-        with comp_cols[0]:
-            st.subheader("🦙 LlamaParse (Text-only)")
-            llama = result.get("llamaparse", {})
-            if llama and llama.get("status") == "success":
-                st.success(f"✅ {llama.get('pages', 0)} pages")
-                st.metric("Cost", "$0.0125/page")
-                with st.expander("📄 Markdown"):
-                    st.markdown(llama.get("markdown", "")[:2000] + "...")
-            else:
-                st.warning("⚠️ Not available" if not llama else f"❌ {llama.get('error', 'Failed')}")
-
-        with comp_cols[1]:
-            st.subheader("📋 Azure Document Intelligence")
-            di = result.get("azure_di", {})
-            if di and di.get("status") == "success":
-                st.success(f"✅ {di.get('pages', 0)} pages")
-                st.metric("Cost", "Pay-per-page")
-                with st.expander("📄 Markdown"):
-                    st.markdown(di.get("markdown", "")[:2000] + "...")
-            else:
-                st.warning("⚠️ Not available" if not di else f"❌ {di.get('error', 'Failed')}")
+        for col, (label, key, cost) in zip(summary_cols, methods_info):
+            with col:
+                method_data = result.get(key, {})
+                if method_data and method_data.get("status") == "success":
+                    st.metric(label, f"{method_data.get('pages', 0)} pages", f"Cost: {cost}")
+                else:
+                    st.metric(label, "—", "❌ Failed")
 
         st.divider()
 
-        # Row 2: MinerU + Azure | MinerU Raw
+        # Scrollable markdown comparison (2x2 grid with full content)
+        comp_cols = st.columns(2)
+
+        # Column 1 (Left): LlamaParse & MinerU+Azure
         with comp_cols[0]:
+            # LlamaParse
+            st.subheader("🦙 LlamaParse (Text-only)")
+            llama = result.get("llamaparse", {})
+            if llama and llama.get("status") == "success":
+                markdown_content = llama.get("markdown", "")
+                # Scrollable container with full markdown
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: rgba(15,23,42,0.8);
+                        border: 1px solid rgba(99,102,241,0.2);
+                        border-radius: 8px;
+                        padding: 16px;
+                        height: 600px;
+                        overflow-y: auto;
+                        font-family: 'Monaco', monospace;
+                        font-size: 12px;
+                        color: #e4eaf5;
+                    ">
+                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.caption(f"📊 {len(markdown_content)} chars extracted")
+            else:
+                st.warning("❌ Extraction failed or not available")
+
+            st.divider()
+
+            # MinerU + Azure
             st.subheader("🔷 MinerU + Azure OpenAI (Enriched)")
             azure = result.get("mineru_azure", {})
             if azure and azure.get("status") == "success":
-                st.success(f"✅ {azure.get('pages', 0)} pages (tables + visuals)")
-                st.metric("Cost", "$0.05 + LLM")
-                with st.expander("📄 Markdown"):
-                    st.markdown(azure.get("markdown", "")[:2000] + "...")
+                markdown_content = azure.get("markdown", "")
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: rgba(15,23,42,0.8);
+                        border: 1px solid rgba(99,102,241,0.2);
+                        border-radius: 8px;
+                        padding: 16px;
+                        height: 600px;
+                        overflow-y: auto;
+                        font-family: 'Monaco', monospace;
+                        font-size: 12px;
+                        color: #e4eaf5;
+                    ">
+                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.caption(f"📊 {len(markdown_content)} chars + enrichment applied")
             else:
-                st.warning("⚠️ Not available" if not azure else f"❌ {azure.get('error', 'Failed')}")
+                st.warning("❌ Extraction failed or not available")
 
+        # Column 2 (Right): Azure DI & MinerU Raw
         with comp_cols[1]:
-            st.subheader("⚙️ MinerU Raw (No Enrichment)")
+            # Azure Document Intelligence
+            st.subheader("📋 Azure Document Intelligence")
+            di = result.get("azure_di", {})
+            if di and di.get("status") == "success":
+                markdown_content = di.get("markdown", "")
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: rgba(15,23,42,0.8);
+                        border: 1px solid rgba(99,102,241,0.2);
+                        border-radius: 8px;
+                        padding: 16px;
+                        height: 600px;
+                        overflow-y: auto;
+                        font-family: 'Monaco', monospace;
+                        font-size: 12px;
+                        color: #e4eaf5;
+                    ">
+                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.caption(f"📊 {len(markdown_content)} chars extracted")
+            else:
+                st.warning("❌ Extraction failed or not available")
+
+            st.divider()
+
+            # MinerU Raw
+            st.subheader("⚙️ MinerU Raw (Layout Only)")
             raw = result.get("mineru_raw", {})
             if raw and raw.get("status") == "success":
-                st.success(f"✅ {raw.get('pages', 0)} pages (layout only)")
-                st.metric("Cost", "$0.05")
-                with st.expander("📄 Markdown"):
-                    st.markdown(raw.get("markdown", "")[:2000] + "...")
+                markdown_content = raw.get("markdown", "")
+                st.markdown(
+                    f"""
+                    <div style="
+                        background: rgba(15,23,42,0.8);
+                        border: 1px solid rgba(99,102,241,0.2);
+                        border-radius: 8px;
+                        padding: 16px;
+                        height: 600px;
+                        overflow-y: auto;
+                        font-family: 'Monaco', monospace;
+                        font-size: 12px;
+                        color: #e4eaf5;
+                    ">
+                    {markdown_content.replace('<', '&lt;').replace('>', '&gt;')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.caption(f"📊 {len(markdown_content)} chars extracted")
             else:
-                st.warning("⚠️ Not available" if not raw else f"❌ {raw.get('error', 'Failed')}")
+                st.warning("❌ Extraction failed or not available")
 
-        st.info(f"📊 File: {result.get('file_name')} ({result.get('file_size', 0) / 1024 / 1024:.1f}MB)")
+        st.divider()
+        st.info(f"📊 File: {result.get('file_name')} | Size: {result.get('file_size', 0) / 1024:.1f}KB")
         st.divider()
 
     if st.session_state.blocks:
