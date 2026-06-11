@@ -448,6 +448,21 @@ def render_sidebar() -> None:
         <hr style="border:none;border-top:1px solid rgba(80,100,200,0.14);margin:0 0 12px;">
         """, unsafe_allow_html=True)
 
+        # ── Pricing Info ──
+        with st.expander("💰 Pricing & Cost Estimates", expanded=False):
+            st.markdown("""
+**MinerU + Kimi K2.5** (Current)
+- MinerU: **$0.05** per document
+- Kimi: **$0.30**/1M input tokens, **$1.50**/1M output
+- Avg total: **~$0.08–$0.15** per page
+
+**Alternatives:**
+- **LlamaParse**: $0.03–$0.04/page (text extraction only)
+- **MinerU + GPT-4o-mini**: $0.05 + $0.15/1M input, $0.60/1M output (~$0.06–$0.10/page)
+
+*See full cost breakdown in "Summary & Cost" tab after processing.*
+            """)
+
         # ── Endpoint ──
         st.markdown('<div class="sidebar-title">🔗 Bridge Endpoint</div>', unsafe_allow_html=True)
         st.session_state.endpoint = st.text_input(
@@ -788,11 +803,39 @@ def render_enrichment_tab() -> None:
             cost_llm = cost_in + cost_out
             cost_mineru = 0.05
             cost_total = cost_mineru + cost_llm
+            page_count = max(status.get('mineru_progress', {}).get('pages', 1), 1)
 
             st.metric("MinerU", f"${cost_mineru:.4f}")
             st.metric("Kimi LLM", f"${cost_llm:.4f}", help=f"{v.get('input_tokens', 0):,} in + {v.get('output_tokens', 0):,} out")
             st.metric("Total Cost", f"${cost_total:.4f}")
-            st.metric("Per Page", f"${cost_total / max(status.get('mineru_progress', {}).get('pages', 1), 1):.4f}")
+            st.metric("Per Page", f"${cost_total / page_count:.4f}")
+
+        st.divider()
+
+        # Cost comparison with alternatives
+        with st.expander("📊 Cost Comparison with Alternatives"):
+            comp_cols = st.columns(3)
+
+            # Current stack: MinerU + Kimi
+            with comp_cols[0]:
+                st.markdown("**MinerU + Kimi K2.5**")
+                st.markdown(f"- Total: **${cost_total:.4f}**\n- Per page: **${cost_total/page_count:.4f}**\n- Input tokens: $0.30/1M\n- Output tokens: $1.50/1M")
+
+            # LlamaParse alternative
+            llamaparse_cost_page = 0.03  # typical rate
+            llamaparse_total = llamaparse_cost_page * page_count
+            with comp_cols[1]:
+                st.markdown("**LlamaParse Only**")
+                st.markdown(f"- Total: **${llamaparse_total:.4f}**\n- Per page: **${llamaparse_cost_page:.4f}**\n- Simple extraction\n- No enrichment")
+
+            # MinerU + GPT-4o-mini (lighter LLM)
+            gpt_cost = 0.15 / 1e6 * v.get('input_tokens', 0) + 0.60 / 1e6 * v.get('output_tokens', 0)
+            gpt_total = 0.05 + gpt_cost
+            with comp_cols[2]:
+                st.markdown("**MinerU + GPT-4o-mini**")
+                st.markdown(f"- Total: **${gpt_total:.4f}**\n- Per page: **${gpt_total/page_count:.4f}**\n- Input: $0.15/1M\n- Output: $0.60/1M")
+
+            st.info(f"📍 **Savings**: LlamaParse saves ${llamaparse_total - cost_total:.4f} but only extracts text. MinerU+Kimi provides full enrichment (tables, visuals).")
 
         st.divider()
 
