@@ -206,6 +206,7 @@ def init_state() -> None:
         "auto_poll":        False,
         "poll_interval":    10,
         "last_poll_time":   0.0,
+        "compare_result":   None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -548,6 +549,29 @@ def render_sidebar() -> None:
                 st.info(f"📋 Task ID copied. Use in **Poll/Resume** section to check status.", icon="ℹ️")
             except Exception as exc:
                 st.error(f"Submit failed: {exc}")
+
+        st.markdown('<hr style="border:none;border-top:1px solid rgba(80,100,200,0.10);margin:10px 0;">', unsafe_allow_html=True)
+
+        # ── Compare Approaches ──
+        st.markdown('<div class="sidebar-title">🔄 Compare Approaches</div>', unsafe_allow_html=True)
+        compare_pdf = st.file_uploader("PDF for comparison", type=["pdf"], key="compare_uploader", label_visibility="collapsed")
+        if st.button("⚖️ Compare (LlamaParse vs Azure)", type="secondary", disabled=compare_pdf is None):
+            if compare_pdf:
+                st.session_state.compare_result = None
+                with st.spinner("Extracting with all 3 methods..."):
+                    try:
+                        resp = requests.post(
+                            f"{st.session_state.endpoint.rstrip('/')}/compare",
+                            files={"file": compare_pdf.getvalue()},
+                            timeout=300,
+                        )
+                        if resp.status_code == 200:
+                            st.session_state.compare_result = resp.json()
+                            st.success("✅ Comparison complete!")
+                        else:
+                            st.error(f"Comparison failed: HTTP {resp.status_code}")
+                    except Exception as e:
+                        st.error(f"Comparison error: {e}")
 
         st.markdown('<hr style="border:none;border-top:1px solid rgba(80,100,200,0.10);margin:10px 0;">', unsafe_allow_html=True)
 
@@ -1211,6 +1235,50 @@ def main() -> None:
     layout_pdf_b64: str | None = None
     if st.session_state.layout_pdf_bytes:
         layout_pdf_b64 = base64.b64encode(st.session_state.layout_pdf_bytes).decode("ascii")
+
+    # Show comparison results if available
+    if st.session_state.get("compare_result"):
+        st.divider()
+        st.markdown("## 🔄 Extraction Comparison Results")
+        result = st.session_state.compare_result
+
+        comp_cols = st.columns(3)
+
+        # LlamaParse
+        with comp_cols[0]:
+            st.subheader("🦙 LlamaParse")
+            llama = result.get("llamaparse", {})
+            if llama and llama.get("status") == "success":
+                st.success(f"✅ {llama.get('pages', 0)} pages")
+                with st.expander("📄 Markdown"):
+                    st.markdown(llama.get("markdown", "")[:1000] + "...")
+            else:
+                st.warning("⚠️ Not available" if not llama else f"❌ {llama.get('error', 'Failed')}")
+
+        # MinerU + Azure
+        with comp_cols[1]:
+            st.subheader("🔷 MinerU + Azure")
+            azure = result.get("mineru_azure", {})
+            if azure and azure.get("status") == "success":
+                st.success(f"✅ {azure.get('pages', 0)} pages (enriched)")
+                with st.expander("📄 Markdown"):
+                    st.markdown(azure.get("markdown", "")[:1000] + "...")
+            else:
+                st.warning("⚠️ Not available" if not azure else f"❌ {azure.get('error', 'Failed')}")
+
+        # MinerU only
+        with comp_cols[2]:
+            st.subheader("⚙️ MinerU Only")
+            miner = result.get("mineru_miner", {})
+            if miner and miner.get("status") == "success":
+                st.success(f"✅ {miner.get('pages', 0)} pages (raw)")
+                with st.expander("📄 Markdown"):
+                    st.markdown(miner.get("markdown", "")[:1000] + "...")
+            else:
+                st.warning("⚠️ Not available" if not miner else f"❌ {miner.get('error', 'Failed')}")
+
+        st.info(f"📊 File: {result.get('file_name')} ({result.get('file_size', 0) / 1024 / 1024:.1f}MB)")
+        st.divider()
 
     if st.session_state.blocks:
         # Show viewer + enrichment tabs

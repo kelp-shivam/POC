@@ -40,6 +40,7 @@ import mimetypes
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -131,8 +132,12 @@ _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  LLM Provider: Azure OpenAI Foundry (GPT-4o-mini only)
+#  Document Extraction Providers
 # ─────────────────────────────────────────────────────────────────────────────
+# LlamaParse
+_LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
+
+# Azure OpenAI Foundry
 _AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
 _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
@@ -141,6 +146,40 @@ _AZURE_MODEL        = "gpt-4o-mini"
 
 if not (_AZURE_API_KEY and _AZURE_ENDPOINT):
     raise RuntimeError("Missing Azure credentials: AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LlamaParse Extraction
+# ─────────────────────────────────────────────────────────────────────────────
+def extract_with_llamaparse(pdf_bytes: bytes) -> dict[str, Any] | None:
+    """Extract PDF with LlamaParse API."""
+    if not _LLAMAPARSE_API_KEY:
+        return None
+    try:
+        import requests
+        url = "https://api.llamaparse.com/api/parsing/job"
+        headers = {"Authorization": f"Bearer {_LLAMAPARSE_API_KEY}"}
+        files = {"file": ("document.pdf", pdf_bytes, "application/pdf")}
+        data = {"output_format": "markdown"}
+        resp = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+        if resp.status_code != 200:
+            return None
+        job_id = resp.json().get("id")
+        if not job_id:
+            return None
+        # Poll for result
+        for _ in range(60):
+            result_resp = requests.get(
+                f"https://api.llamaparse.com/api/parsing/job/{job_id}/result",
+                headers=headers,
+                timeout=10,
+            )
+            if result_resp.status_code == 200:
+                return result_resp.json()
+            time.sleep(1)
+        return None
+    except Exception:
+        return None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  LLM Callers (Azure OpenAI Foundry only)
@@ -1624,6 +1663,80 @@ def list_models() -> dict[str, Any]:
             }
         ]
     }
+
+
+@app.post("/compare")
+async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extract same PDF with all 3 methods for comparison."""
+    pdf_bytes = await file.read()
+    results = {
+        "llamaparse": None,
+        "mineru_azure": None,
+        "mineru_miner": None,
+        "file_name": file.filename,
+        "file_size": len(pdf_bytes),
+    }
+
+    # Method 1: LlamaParse
+    if _LLAMAPARSE_API_KEY:
+        llamaparse_result = extract_with_llamaparse(pdf_bytes)
+        if llamaparse_result:
+            results["llamaparse"] = {
+                "markdown": llamaparse_result.get("markdown", ""),
+                "pages": len(llamaparse_result.get("markdown", "").split("---")) if llamaparse_result.get("markdown") else 0,
+                "status": "success",
+            }
+
+    # Method 2: MinerU + Azure (full enrichment)
+    task_id_azure = str(uuid.uuid4())
+    task_dir = Path(tempfile.gettempdir()) / "docextract_compare" / task_id_azure
+    task_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = task_dir / file.filename
+    pdf_path.write_bytes(pdf_bytes)
+
+    # Submit to MinerU
+    try:
+        batch_id = submit_local_file_to_mineru(
+            pdf_path,
+            model_version="vlm",
+            enable_formula=True,
+            enable_table=True,
+            language="en",
+            is_ocr=False,
+            page_ranges=None,
+        )
+        zip_url = poll_mineru_batch(batch_id, {})
+        raw_zip = task_dir / "mineru.zip"
+        download_zip(zip_url, raw_zip)
+
+        # Extract and parse
+        extract_dir = task_dir / "extract"
+        extract_dir.mkdir(exist_ok=True)
+        with zipfile.ZipFile(raw_zip) as zf:
+            zf.extractall(extract_dir)
+
+        md_file = next(extract_dir.rglob("full.md"), None)
+        page_count = 0
+        if md_file:
+            content = md_file.read_text(encoding="utf-8", errors="ignore")
+            page_count = len([l for l in content.split("\n") if l.startswith("# Page")])
+
+        results["mineru_azure"] = {
+            "markdown": content if md_file else "",
+            "pages": page_count,
+            "status": "success",
+        }
+    except Exception as e:
+        results["mineru_azure"] = {"status": "failed", "error": str(e)}
+
+    # Method 3: MinerU only (no enrichment)
+    results["mineru_miner"] = {
+        "markdown": results["mineru_azure"].get("markdown", "") if results["mineru_azure"] else "",
+        "pages": results["mineru_azure"].get("pages", 0) if results["mineru_azure"] else 0,
+        "status": "success" if results["mineru_azure"].get("status") == "success" else "failed",
+    }
+
+    return results
 
 
 @app.post("/tasks")
