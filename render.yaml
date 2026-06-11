@@ -17,7 +17,17 @@ services:
         sync: false
       - key: api_key_4
         sync: false
-      # Azure OpenAI Foundry (GPT-4o mini - default)
+      # LlamaParse (optional)
+      - key: LLAMAPARSE_API_KEY
+        sync: false
+      # Azure Document Intelligence (optional)
+      - key: AZURE_DI_ENDPOINT
+        sync: false
+      - key: AZURE_DI_KEY
+        sync: false
+      - key: AZURE_DI_PROJECT
+        sync: false
+      # Azure OpenAI Foundry (GPT-4o mini - enrichment)
       - key: AZURE_OPENAI_API_KEY
         sync: false
       - key: AZURE_OPENAI_ENDPOINT

@@ -555,7 +555,7 @@ def render_sidebar() -> None:
         # ── Compare Approaches ──
         st.markdown('<div class="sidebar-title">🔄 Compare Approaches</div>', unsafe_allow_html=True)
         compare_pdf = st.file_uploader("PDF for comparison", type=["pdf"], key="compare_uploader", label_visibility="collapsed")
-        if st.button("⚖️ Compare (LlamaParse vs Azure)", type="secondary", disabled=compare_pdf is None):
+        if st.button("⚖️ Compare All 4 Methods", type="secondary", disabled=compare_pdf is None):
             if compare_pdf:
                 st.session_state.compare_result = None
                 with st.spinner("Extracting with all 3 methods..."):
@@ -1239,43 +1239,58 @@ def main() -> None:
     # Show comparison results if available
     if st.session_state.get("compare_result"):
         st.divider()
-        st.markdown("## 🔄 Extraction Comparison Results")
+        st.markdown("## 🔄 Extraction Comparison: All 4 Methods")
         result = st.session_state.compare_result
 
-        comp_cols = st.columns(3)
+        comp_cols = st.columns(2)
 
-        # LlamaParse
+        # Row 1: LlamaParse | Azure DI
         with comp_cols[0]:
-            st.subheader("🦙 LlamaParse")
+            st.subheader("🦙 LlamaParse (Text-only)")
             llama = result.get("llamaparse", {})
             if llama and llama.get("status") == "success":
                 st.success(f"✅ {llama.get('pages', 0)} pages")
+                st.metric("Cost", "$0.0125/page")
                 with st.expander("📄 Markdown"):
-                    st.markdown(llama.get("markdown", "")[:1000] + "...")
+                    st.markdown(llama.get("markdown", "")[:2000] + "...")
             else:
                 st.warning("⚠️ Not available" if not llama else f"❌ {llama.get('error', 'Failed')}")
 
-        # MinerU + Azure
         with comp_cols[1]:
-            st.subheader("🔷 MinerU + Azure")
+            st.subheader("📋 Azure Document Intelligence")
+            di = result.get("azure_di", {})
+            if di and di.get("status") == "success":
+                st.success(f"✅ {di.get('pages', 0)} pages")
+                st.metric("Cost", "Pay-per-page")
+                with st.expander("📄 Markdown"):
+                    st.markdown(di.get("markdown", "")[:2000] + "...")
+            else:
+                st.warning("⚠️ Not available" if not di else f"❌ {di.get('error', 'Failed')}")
+
+        st.divider()
+
+        # Row 2: MinerU + Azure | MinerU Raw
+        with comp_cols[0]:
+            st.subheader("🔷 MinerU + Azure OpenAI (Enriched)")
             azure = result.get("mineru_azure", {})
             if azure and azure.get("status") == "success":
-                st.success(f"✅ {azure.get('pages', 0)} pages (enriched)")
+                st.success(f"✅ {azure.get('pages', 0)} pages (tables + visuals)")
+                st.metric("Cost", "$0.05 + LLM")
                 with st.expander("📄 Markdown"):
-                    st.markdown(azure.get("markdown", "")[:1000] + "...")
+                    st.markdown(azure.get("markdown", "")[:2000] + "...")
             else:
                 st.warning("⚠️ Not available" if not azure else f"❌ {azure.get('error', 'Failed')}")
 
-        # MinerU only
-        with comp_cols[2]:
-            st.subheader("⚙️ MinerU Only")
-            miner = result.get("mineru_miner", {})
-            if miner and miner.get("status") == "success":
-                st.success(f"✅ {miner.get('pages', 0)} pages (raw)")
+        with comp_cols[1]:
+            st.subheader("⚙️ MinerU Raw (No Enrichment)")
+            raw = result.get("mineru_raw", {})
+            if raw and raw.get("status") == "success":
+                st.success(f"✅ {raw.get('pages', 0)} pages (layout only)")
+                st.metric("Cost", "$0.05")
                 with st.expander("📄 Markdown"):
-                    st.markdown(miner.get("markdown", "")[:1000] + "...")
+                    st.markdown(raw.get("markdown", "")[:2000] + "...")
             else:
-                st.warning("⚠️ Not available" if not miner else f"❌ {miner.get('error', 'Failed')}")
+                st.warning("⚠️ Not available" if not raw else f"❌ {raw.get('error', 'Failed')}")
 
         st.info(f"📊 File: {result.get('file_name')} ({result.get('file_size', 0) / 1024 / 1024:.1f}MB)")
         st.divider()

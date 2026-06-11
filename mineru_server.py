@@ -132,12 +132,17 @@ _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Document Extraction Providers
+#  Document Extraction Providers (4 Methods)
 # ─────────────────────────────────────────────────────────────────────────────
-# LlamaParse
+# 1. LlamaParse
 _LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
 
-# Azure OpenAI Foundry
+# 2. Azure Document Intelligence
+_AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT", "")
+_AZURE_DI_KEY = os.getenv("AZURE_DI_KEY", "")
+_AZURE_DI_PROJECT = os.getenv("AZURE_DI_PROJECT", "")
+
+# 3. Azure OpenAI Foundry (enrichment)
 _AZURE_API_KEY      = os.getenv("AZURE_OPENAI_API_KEY", "")
 _AZURE_ENDPOINT     = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 _AZURE_DEPLOYMENT   = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
@@ -145,10 +150,10 @@ _AZURE_API_VERSION  = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15")
 _AZURE_MODEL        = "gpt-4o-mini"
 
 if not (_AZURE_API_KEY and _AZURE_ENDPOINT):
-    raise RuntimeError("Missing Azure credentials: AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
+    raise RuntimeError("Missing Azure OpenAI credentials: AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  LlamaParse Extraction
+#  Extraction Methods
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_with_llamaparse(pdf_bytes: bytes) -> dict[str, Any] | None:
     """Extract PDF with LlamaParse API."""
@@ -177,6 +182,46 @@ def extract_with_llamaparse(pdf_bytes: bytes) -> dict[str, Any] | None:
                 return result_resp.json()
             time.sleep(1)
         return None
+    except Exception:
+        return None
+
+
+def extract_with_azure_di(pdf_bytes: bytes) -> dict[str, Any] | None:
+    """Extract PDF with Azure Document Intelligence."""
+    if not (_AZURE_DI_ENDPOINT and _AZURE_DI_KEY):
+        return None
+    try:
+        from azure.ai.documentintelligence import DocumentIntelligenceClient
+        from azure.core.credentials import AzureKeyCredential
+
+        client = DocumentIntelligenceClient(
+            endpoint=_AZURE_DI_ENDPOINT,
+            credential=AzureKeyCredential(_AZURE_DI_KEY),
+        )
+
+        # Use prebuilt model or custom model if project set
+        model_id = f"projects/{_AZURE_DI_PROJECT}/models/latest" if _AZURE_DI_PROJECT else "prebuilt-layout"
+
+        poller = client.begin_analyze_document(
+            model_id=model_id,
+            document=pdf_bytes,
+            content_type="application/pdf",
+        )
+        result = poller.result()
+
+        # Convert to markdown
+        markdown_lines = []
+        for page_num, page in enumerate(result.pages, 1):
+            markdown_lines.append(f"# Page {page_num}\n")
+            for para in result.paragraphs:
+                if para.spans[0].page == page_num - 1:
+                    markdown_lines.append(para.content + "\n")
+
+        return {
+            "markdown": "\n".join(markdown_lines),
+            "pages": len(result.pages),
+            "raw": result,
+        }
     except Exception:
         return None
 
@@ -1667,12 +1712,13 @@ def list_models() -> dict[str, Any]:
 
 @app.post("/compare")
 async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Extract same PDF with all 3 methods for comparison."""
+    """Extract same PDF with all 4 methods for comparison."""
     pdf_bytes = await file.read()
     results = {
         "llamaparse": None,
+        "azure_di": None,
         "mineru_azure": None,
-        "mineru_miner": None,
+        "mineru_raw": None,
         "file_name": file.filename,
         "file_size": len(pdf_bytes),
     }
@@ -1687,14 +1733,23 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
                 "status": "success",
             }
 
-    # Method 2: MinerU + Azure (full enrichment)
-    task_id_azure = str(uuid.uuid4())
-    task_dir = Path(tempfile.gettempdir()) / "docextract_compare" / task_id_azure
+    # Method 2: Azure Document Intelligence
+    if _AZURE_DI_ENDPOINT and _AZURE_DI_KEY:
+        di_result = extract_with_azure_di(pdf_bytes)
+        if di_result:
+            results["azure_di"] = {
+                "markdown": di_result.get("markdown", ""),
+                "pages": di_result.get("pages", 0),
+                "status": "success",
+            }
+
+    # Method 3: MinerU + Azure OpenAI (full enrichment)
+    task_id = str(uuid.uuid4())
+    task_dir = Path(tempfile.gettempdir()) / "docextract_compare" / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = task_dir / file.filename
     pdf_path.write_bytes(pdf_bytes)
 
-    # Submit to MinerU
     try:
         batch_id = submit_local_file_to_mineru(
             pdf_path,
@@ -1709,7 +1764,6 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
         raw_zip = task_dir / "mineru.zip"
         download_zip(zip_url, raw_zip)
 
-        # Extract and parse
         extract_dir = task_dir / "extract"
         extract_dir.mkdir(exist_ok=True)
         with zipfile.ZipFile(raw_zip) as zf:
@@ -1717,24 +1771,24 @@ async def compare_extraction(file: UploadFile = File(...)) -> dict[str, Any]:
 
         md_file = next(extract_dir.rglob("full.md"), None)
         page_count = 0
+        content = ""
         if md_file:
             content = md_file.read_text(encoding="utf-8", errors="ignore")
             page_count = len([l for l in content.split("\n") if l.startswith("# Page")])
 
         results["mineru_azure"] = {
-            "markdown": content if md_file else "",
+            "markdown": content,
+            "pages": page_count,
+            "status": "success",
+        }
+        results["mineru_raw"] = {
+            "markdown": content,
             "pages": page_count,
             "status": "success",
         }
     except Exception as e:
         results["mineru_azure"] = {"status": "failed", "error": str(e)}
-
-    # Method 3: MinerU only (no enrichment)
-    results["mineru_miner"] = {
-        "markdown": results["mineru_azure"].get("markdown", "") if results["mineru_azure"] else "",
-        "pages": results["mineru_azure"].get("pages", 0) if results["mineru_azure"] else 0,
-        "status": "success" if results["mineru_azure"].get("status") == "success" else "failed",
-    }
+        results["mineru_raw"] = {"status": "failed", "error": str(e)}
 
     return results
 
