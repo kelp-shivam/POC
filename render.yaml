@@ -9,7 +9,6 @@ services:
     envVars:
       - key: PORT
         value: 8000
-    envVars:
       - key: MINERU_API_KEY
         sync: false
       - key: api_key_1
