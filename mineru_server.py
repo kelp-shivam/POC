@@ -333,6 +333,9 @@ async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = No
                 page.markdown for page in result.markdown.pages if page.markdown
             ])
 
+        # Step 3.5: Convert HTML tables to markdown
+        full_markdown = _convert_html_tables_in_markdown(full_markdown)
+
         # Step 4: Save output if dir provided
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
