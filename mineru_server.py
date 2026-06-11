@@ -202,7 +202,6 @@ async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = No
         # Step 1: Upload file
         file_obj = await client.files.create(
             file=BytesIO(pdf_bytes),
-            filename="document.pdf",
             purpose="parse",
         )
 
@@ -210,21 +209,32 @@ async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = No
         result = await client.parsing.parse(
             file_id=file_obj.id,
             tier="agentic",
-            expand=["markdown_full"],
+            version="latest",
+            expand=["markdown"],
         )
 
-        # Step 3: Save output if dir provided
+        # Step 3: Extract markdown from result
+        full_markdown = ""
+        if result.markdown and result.markdown.pages:
+            full_markdown = "\n".join([
+                page.markdown for page in result.markdown.pages if page.markdown
+            ])
+
+        # Step 4: Save output if dir provided
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
             md_file = output_dir / "llamacloud_output.md"
-            md_file.write_text(result.markdown_full or "", encoding="utf-8")
+            md_file.write_text(full_markdown, encoding="utf-8")
 
         return {
-            "markdown": result.markdown_full or "",
-            "pages": len((result.markdown_full or "").split("\n# Page")),
+            "markdown": full_markdown,
+            "pages": len(result.markdown.pages) if result.markdown else 0,
         }
 
     except Exception as e:
+        print(f"LlamaCloud error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
