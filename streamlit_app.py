@@ -191,7 +191,7 @@ def init_state() -> None:
         "extract_dir":      None,
         "blocks":           [],
         "markdown":         "",
-        "enrichment_md":    "",
+        "final_merged_md":  "",
         "visual_summaries": [],
         "checks":           None,
         "source_pdf_bytes": None,
@@ -272,13 +272,14 @@ def load_result_zip(data: bytes, name: str = "mineru_result.zip") -> None:
     safe_extract_zip(data, target)
 
     md_path = (
-        find_first(target, ["full_enriched.md"])
+        find_first(target, ["final_merged.md"])  # new merged markdown (content + all enrichments)
+        or find_first(target, ["full_enriched.md"])
         or find_first(target, ["full.md"])
         or find_first(target, ["output.md"])
         or next((p for p in sorted(target.rglob("*.md"))
-                 if p.name not in {"visual_summaries.md", "heuristic_checks.md", "enrichment.md"}), None)
+                 if p.name not in {"visual_summaries.md", "heuristic_checks.md", "enrichment.md", "final_merged.md"}), None)
     )
-    enrichment_md_path = find_first(target, ["enrichment.md"])
+    enrichment_md_path = find_first(target, ["enrichment.md"])  # legacy enrichment summary
     content_path = (
         find_first(target, ["content_list_enriched.json"])
         or find_first(target, ["*content_list*.json"])
@@ -326,6 +327,9 @@ def load_result_zip(data: bytes, name: str = "mineru_result.zip") -> None:
     st.session_state.extract_dir      = str(target)
     st.session_state.blocks           = blocks
     st.session_state.markdown         = md_path.read_text(encoding="utf-8", errors="ignore") if md_path else ""
+    st.session_state.final_merged_md    = (
+        md_path.read_text(encoding="utf-8", errors="ignore") if md_path else ""
+    )
     st.session_state.enrichment_md    = (
         enrichment_md_path.read_text(encoding="utf-8", errors="ignore") if enrichment_md_path else ""
     )
@@ -457,9 +461,10 @@ def render_sidebar() -> None:
 - Avg total: **~$0.08–$0.15** per page
 
 **Alternatives:**
-- **LlamaParse**: $0.03–$0.04/page (text extraction only)
+- **LlamaParse**: **$0.0125**/page (text extraction only, no enrichment)
 - **MinerU + GPT-4o-mini**: $0.05 + $0.15/1M input, $0.60/1M output (~$0.06–$0.10/page)
 
+*All processing (extraction + enrichment + API calls) happens at backend.*
 *See full cost breakdown in "Summary & Cost" tab after processing.*
             """)
 
@@ -775,12 +780,13 @@ def build_viewer_html(
 #  Enrichment Tab
 # ─────────────────────────────────────────────────────────────────────────────
 def render_enrichment_tab() -> None:
-    """Display enrichment.md + structured table corrections + visual summaries."""
+    """Display final merged markdown (content + all enrichments inline)."""
     blocks = st.session_state.blocks
+    merged_md = st.session_state.final_merged_md
     enrich_md = st.session_state.enrichment_md
     status = st.session_state.status
 
-    tab0, tab1, tab2, tab3 = st.tabs(["⏱ Summary & Cost", "📋 Enrichment Report", "📊 Table Corrections", "🖼 Visual Summaries"])
+    tab0, tab1 = st.tabs(["⏱ Summary & Cost", "📋 Final Document (with AI Enrichments)"])
 
     with tab0:
         # Timing & Cost Summary
@@ -822,7 +828,7 @@ def render_enrichment_tab() -> None:
                 st.markdown(f"- Total: **${cost_total:.4f}**\n- Per page: **${cost_total/page_count:.4f}**\n- Input tokens: $0.30/1M\n- Output tokens: $1.50/1M")
 
             # LlamaParse alternative
-            llamaparse_cost_page = 0.03  # typical rate
+            llamaparse_cost_page = 0.0125  # per-page rate
             llamaparse_total = llamaparse_cost_page * page_count
             with comp_cols[1]:
                 st.markdown("**LlamaParse Only**")
@@ -851,16 +857,26 @@ def render_enrichment_tab() -> None:
             st.metric("LLM Calls", v.get('llm_calls', 0))
 
     with tab1:
-        if enrich_md:
-            st.markdown(enrich_md)
-            st.download_button(
-                "⬇ Download enrichment.md",
-                enrich_md,
-                "enrichment.md",
-                "text/markdown",
-            )
+        if merged_md:
+            st.markdown(merged_md)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    "⬇ Download final_merged.md",
+                    merged_md,
+                    "final_merged.md",
+                    "text/markdown",
+                )
+            with col2:
+                if enrich_md:
+                    st.download_button(
+                        "⬇ Download enrichment_summary.md",
+                        enrich_md,
+                        "enrichment_summary.md",
+                        "text/markdown",
+                    )
         else:
-            st.info("enrichment.md not found in result ZIP. Process a document first.")
+            st.info("Final merged document not found. Process a document first.")
 
     with tab2:
         table_blocks = [

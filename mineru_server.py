@@ -1159,6 +1159,100 @@ def merge_visuals_into_md(md_text: str, enrichments: list[dict]) -> str:
     return re.sub(r"!\[\]\(([^)]+)\)", _replace, md_text)
 
 
+def merge_all_enrichments_into_md(
+    md_text: str,
+    table_enrichments: list[dict],
+    visual_enrichments: list[dict],
+) -> str:
+    """Merge all table & visual enrichments into markdown inline.
+
+    Inserts corrections and AI summaries directly into the original content,
+    keeping structure intact but adding enrichment callouts.
+    """
+    # Build block index maps
+    table_map: dict[int, dict] = {}  # block_index → enrichment
+    for item in table_enrichments:
+        idx = item.get("block_index")
+        if idx is not None:
+            table_map[idx] = item.get("enrichment", {})
+
+    visual_map: dict[str, dict] = {}  # image filename → enrichment
+    for item in visual_enrichments:
+        ref = item.get("image_path", "")
+        s = item.get("enrichment", {})
+        if isinstance(s, dict) and s.get("ok") and ref:
+            visual_map[Path(ref).name] = s
+
+    # Process visuals (replace image placeholders)
+    def _replace_visual(m: re.Match) -> str:
+        fname = Path(m.group(1)).name
+        s = visual_map.get(fname)
+        if not s:
+            return m.group(0)
+        vtype = s.get("visual_type") or "visual"
+        title = s.get("title") or ""
+        text = (s.get("extracted_text") or "").strip()[:1200]
+        data = s.get("data_values") or []
+        summary = s.get("summary") or ""
+        notes = s.get("enrichment_notes") or ""
+        header = f"**[{vtype.upper()}]** {title}".strip()
+        lines = [f"\n> {header}"]
+        if summary:
+            lines.append(f">\n> 📋 *{summary}*")
+        if text:
+            lines.append(f">\n> {text}")
+        if data:
+            pairs = " · ".join(
+                f"{d.get('label', '')}: {d.get('value', '')}" for d in data[:15]
+                if d.get("label") or d.get("value")
+            )
+            if pairs:
+                lines.append(f">\n> *{pairs}*")
+        if notes:
+            lines.append(f">\n> 🗒 {notes}")
+        return "\n".join(lines) + "\n"
+
+    merged_md = re.sub(r"!\[\]\(([^)]+)\)", _replace_visual, md_text)
+
+    # Process tables (insert enrichment after table blocks)
+    # Look for markdown tables and insert corrections + summary after
+    lines = merged_md.split("\n")
+    result_lines: list[str] = []
+    i = 0
+    while i < len(lines):
+        result_lines.append(lines[i])
+        # Check if this is a table separator line (|---|---|...)
+        if i < len(lines) - 1 and "|" in lines[i] and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
+            # Skip to end of table (next non-pipe line or empty line)
+            j = i + 1
+            while j < len(lines) and "|" in lines[j]:
+                result_lines.append(lines[j])
+                j += 1
+            # Insert table enrichment after table (if available)
+            # Note: we can't easily map back to block_index, so we insert enrichments for all
+            for idx, enrichment in table_map.items():
+                if not enrichment.get("ok", True):
+                    continue  # skip invalid tables
+                lines_to_add = ["\n> **AI Enrichment:**"]
+                if enrichment.get("corrections"):
+                    lines_to_add.append(f"> **Corrections:** {len(enrichment['corrections'])} cell(s) fixed")
+                    for c in enrichment["corrections"][:3]:  # show first 3
+                        lines_to_add.append(f">   - {c.get('location','?')}: `{c.get('original','?')}` → `{c.get('corrected','?')}`")
+                if enrichment.get("summary"):
+                    lines_to_add.append(f">\n> **Summary:** {enrichment['summary']}")
+                if enrichment.get("enrichment_notes"):
+                    lines_to_add.append(f"> **Context:** {enrichment['enrichment_notes']}")
+                if enrichment.get("needs_review"):
+                    lines_to_add.append("> ⚠️ **Flagged for review**")
+                result_lines.extend(lines_to_add)
+                result_lines.append("")
+            i = j
+            continue
+        i += 1
+
+    return "\n".join(result_lines)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  enrichment.md Generator
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1470,6 +1564,10 @@ def enrich_zip_with_kimi(zip_path: Path, task_dir: Path, task: dict[str, Any]) -
     md_path = next(extract_dir.rglob("full.md"), None)
     if md_path and md_path.exists():
         raw_md      = md_path.read_text(encoding="utf-8", errors="ignore")
+        # Create comprehensive merged markdown with all enrichments inline
+        merged_md = merge_all_enrichments_into_md(raw_md, table_enrichments, visual_enrichments)
+        (extract_dir / "final_merged.md").write_text(merged_md, encoding="utf-8")
+        # Keep legacy full_enriched.md for backwards compat
         enriched_md = merge_visuals_into_md(raw_md, visual_enrichments)
         (extract_dir / "full_enriched.md").write_text(enriched_md, encoding="utf-8")
 
