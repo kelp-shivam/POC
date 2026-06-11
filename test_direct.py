@@ -19,7 +19,7 @@ except ImportError:
     sys.exit(1)
 
 endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
-deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o").strip()
+deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini").strip()
 
 if not endpoint:
     print("✗ Missing AZURE_OPENAI_ENDPOINT")

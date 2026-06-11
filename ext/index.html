@@ -442,6 +442,7 @@
     /* Scrollable body */
     .pb {
       flex: 1; overflow: auto; padding: 16px;
+      height: 0; /* forces flex to constrain height, enables internal scroll */
       scrollbar-width: thin;
       scrollbar-color: rgba(99,102,241,.2) transparent;
     }
@@ -2198,7 +2199,12 @@ function buildMapping() {
 }
 
 function renderMarkdown(md) {
-  marked.setOptions({ breaks: true, gfm: true });
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    pedantic: false,
+    async: false
+  });
   let html = marked.parse(md);
 
   const tmp = document.createElement('div');

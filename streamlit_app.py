@@ -52,15 +52,24 @@ def _launch_backend() -> None:
     except Exception:
         pass
 
-# Only auto-start backend in local dev mode (no external DOCEXTRACT_BRIDGE_URL set)
+# Detect environment: local dev vs Render deployment
+_IS_RENDER = bool(os.getenv("RENDER"))
 _EXTERNAL_BACKEND = bool(os.getenv("DOCEXTRACT_BRIDGE_URL"))
-if not _BACKEND_STARTED and not _EXTERNAL_BACKEND:
+
+# Auto-start backend only in local dev mode
+if not _BACKEND_STARTED and not _EXTERNAL_BACKEND and not _IS_RENDER:
     _threading.Thread(target=_launch_backend, daemon=True).start()
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Config
 # ─────────────────────────────────────────────────────────────────────────────
-DEFAULT_ENDPOINT = os.getenv("DOCEXTRACT_BRIDGE_URL", "http://127.0.0.1:8000")
+# Default endpoint: Render in production, local in dev
+if os.getenv("DOCEXTRACT_BRIDGE_URL"):
+    DEFAULT_ENDPOINT = os.getenv("DOCEXTRACT_BRIDGE_URL")
+elif _IS_RENDER:
+    DEFAULT_ENDPOINT = "https://docextract-backend.onrender.com"
+else:
+    DEFAULT_ENDPOINT = "http://127.0.0.1:8000"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 st.set_page_config(
@@ -596,8 +605,10 @@ def render_sidebar() -> None:
 
         with col2:
             if st.button("🗑️ Clear", type="tertiary"):
-                st.session_state.compare_result = None
-                st.session_state.extract_result = None
+                # Clear all extraction state
+                for key in list(st.session_state.keys()):
+                    if key not in ["endpoint"]:
+                        st.session_state[key] = None
                 st.rerun()
 
         st.markdown('<hr style="border:none;border-top:1px solid rgba(80,100,200,0.10);margin:10px 0;">', unsafe_allow_html=True)

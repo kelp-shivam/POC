@@ -156,13 +156,12 @@ _CAPTION_ONLY    = re.compile(r"^(fig(?:ure)?|table|chart|exhibit)\.?\s*\d*\.?\s
 _WHITESPACE_ONLY = re.compile(r"^\s*$")
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-#  Document Extraction Providers (4 Methods - All Required)
+#  Document Extraction Providers (4 Methods)
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. LlamaParse
+# 1. LlamaParse (optional - will fail at extraction time if not set)
 _LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
-if not _LLAMAPARSE_API_KEY:
-    raise RuntimeError("Missing LlamaParse credentials: LLAMAPARSE_API_KEY required")
 
 # 2. Azure Document Intelligence (with service principal support)
 _AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT", "")
@@ -303,6 +302,10 @@ def _count_pages_from_content_list(extract_dir: Path) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 async def extract_with_llamaparse(pdf_bytes: bytes, output_dir: Path | None = None) -> dict[str, Any] | None:
     """Extract PDF with LlamaCloud SDK (agentic tier). Saves result to output_dir."""
+    if not _LLAMAPARSE_API_KEY:
+        print("LlamaCloud error: LLAMAPARSE_API_KEY not set")
+        return None
+
     try:
         from io import BytesIO
         from llama_cloud import AsyncLlamaCloud
