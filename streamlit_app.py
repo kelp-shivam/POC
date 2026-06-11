@@ -304,7 +304,7 @@ elif st.session_state.extract_result:
             if savings > 0:
                 st.success(f"💡 **Save ${savings:.4f}** with tables & enrichment!")
             else:
-                st.info(f"ℹ️ Costs **${abs(savings):.4f}}** more but includes full enrichment")
+                st.info(f"ℹ️ Costs **${abs(savings):.4f}** more but includes full enrichment")
 
     st.divider()
     st.markdown("### 📄 Markdown Content")
